@@ -1,0 +1,20 @@
+def _subscribers():
+    from app.workers.resume_tasks import parse_resume_task
+    from app.workers.notification_tasks import (
+        notify_stage_change_task,
+        notify_interview_scheduled_task,
+        trigger_onboarding_task,
+    )
+
+    return {
+        "resume.uploaded": [parse_resume_task],
+        "application.stage_changed": [notify_stage_change_task],
+        "interview.scheduled": [notify_interview_scheduled_task],
+        "offer.accepted": [trigger_onboarding_task],
+    }
+
+
+class EventBus:
+    def publish(self, event_name: str, payload: dict) -> None:
+        for task in _subscribers().get(event_name, []):
+            task.delay(payload)

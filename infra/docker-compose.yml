@@ -1,0 +1,75 @@
+networks:
+  default:
+    name: recruitiq-network
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: recruitiq
+      POSTGRES_PASSWORD: recruitiq
+      POSTGRES_DB: recruitiq
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U recruitiq"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../infra/docker/backend.Dockerfile
+    env_file: ../backend/.env
+    environment:
+      FLASK_APP: wsgi.py
+      OLLAMA_BASE_URL: http://ollama:11434
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      ollama:
+        condition: service_started
+    volumes:
+      - ../backend:/app
+
+  worker:
+    build:
+      context: ../backend
+      dockerfile: ../infra/docker/backend.Dockerfile
+    command: celery -A app.workers.worker_entrypoint.celery_app worker --loglevel=info -Q critical,cpu_intensive,default,batch
+    env_file: ../backend/.env
+    environment:
+      FLASK_APP: wsgi.py
+      OLLAMA_BASE_URL: http://ollama:11434
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      ollama:
+        condition: service_started
+    volumes:
+      - ../backend:/app
+
+volumes:
+  pgdata:
+  ollama_models:

@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  
+  :root {
+    --surface: theme("colors.ink.50");
+    --surface-raised: theme("colors.white");
+    --surface-hover: theme("colors.ink.100");
+    --border: theme("colors.ink.100");
+    --text-primary: theme("colors.ink.900");
+    --text-secondary: theme("colors.ink.500");
+    --text-muted: theme("colors.ink.400");
+    --accent: theme("colors.signal.500");
+    --accent-hover: theme("colors.signal.600");
+    --accent-soft: theme("colors.signal.50");
+  }
+
+  .dark {
+    --surface: theme("colors.ink.950");
+    --surface-raised: theme("colors.ink.900");
+    --surface-hover: theme("colors.ink.800");
+    --border: theme("colors.ink.800");
+    --text-primary: theme("colors.ink.50");
+    --text-secondary: theme("colors.ink.300");
+    --text-muted: theme("colors.ink.500");
+    --accent: theme("colors.signal.400");
+    --accent-hover: theme("colors.signal.300");
+    --accent-soft: theme("colors.signal.900");
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    font-family: "Inter", system-ui, sans-serif;
+    background-color: var(--surface);
+    color: var(--text-primary);
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+  h1, h2, h3 {
+    font-family: "Fraunces", serif;
+    letter-spacing: -0.01em;
+  }
+  :focus-visible {
+    outline: 2px solid theme("colors.signal.400");
+    outline-offset: 2px;
+  }
+}
