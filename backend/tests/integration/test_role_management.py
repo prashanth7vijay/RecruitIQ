@@ -13,10 +13,11 @@ def _grant(db_session, role, code):
 
 
 def test_list_roles_includes_system_and_own_custom_roles(auth_client, db_session, test_user):
+    _grant(db_session, test_user.role, "role.manage")
+
     create_resp = auth_client.get("/api/v1/roles")
     assert create_resp.status_code == 200
     names = {r["name"] for r in create_resp.get_json()["data"]}
-    # System roles seeded at app boot should be visible to every tenant.
     assert "org_admin" in names
     assert "recruiter" in names
 

@@ -1,4 +1,5 @@
 from app.models.talent_pool import TalentPool, TalentPoolMembership
+from app.models.candidate import CandidateProfile
 from app.models.candidate_crm import CandidateNote, CandidateTag
 from app.repositories.base_repository import TenantScopedRepository
 
@@ -13,27 +14,48 @@ class TalentPoolMembershipRepository:
         self.session = session
 
     def add(self, talent_pool_id, candidate_profile_id):
-        membership = TalentPoolMembership(talent_pool_id=talent_pool_id, candidate_profile_id=candidate_profile_id)
+        membership = TalentPoolMembership(
+            talent_pool_id=talent_pool_id,
+            candidate_profile_id=candidate_profile_id,
+        )
         self.session.add(membership)
         return membership
 
     def exists(self, talent_pool_id, candidate_profile_id):
         return (
             self.session.query(TalentPoolMembership)
-            .filter_by(talent_pool_id=talent_pool_id, candidate_profile_id=candidate_profile_id)
+            .filter_by(
+                talent_pool_id=talent_pool_id,
+                candidate_profile_id=candidate_profile_id,
+            )
             .first()
             is not None
         )
 
     def remove(self, talent_pool_id, candidate_profile_id):
         self.session.query(TalentPoolMembership).filter_by(
-            talent_pool_id=talent_pool_id, candidate_profile_id=candidate_profile_id
+            talent_pool_id=talent_pool_id,
+            candidate_profile_id=candidate_profile_id,
         ).delete()
 
     def list_for_pool(self, talent_pool_id):
         return (
             self.session.query(TalentPoolMembership)
             .filter_by(talent_pool_id=talent_pool_id)
+            .all()
+        )
+
+    def list_profiles_for_pool(self, tenant_id, talent_pool_id):
+        return (
+            self.session.query(CandidateProfile)
+            .join(
+                TalentPoolMembership,
+                TalentPoolMembership.candidate_profile_id == CandidateProfile.id,
+            )
+            .filter(
+                TalentPoolMembership.talent_pool_id == talent_pool_id,
+                CandidateProfile.company_id == tenant_id,
+            )
             .all()
         )
 
@@ -82,6 +104,10 @@ class CandidateTagRepository:
     def get_by_label(self, tenant_id, candidate_profile_id, label):
         return (
             self.session.query(CandidateTag)
-            .filter_by(company_id=tenant_id, candidate_profile_id=candidate_profile_id, label=label)
+            .filter_by(
+                company_id=tenant_id,
+                candidate_profile_id=candidate_profile_id,
+                label=label,
+            )
             .first()
         )

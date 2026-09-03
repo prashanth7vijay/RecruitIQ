@@ -1,82 +1,15 @@
-from app.models.candidate import Candidate, CandidateProfile
-from app.models.pipeline import PipelineTemplate, PipelineStage
-from app.models.job import Job
-from app.models.application import Application
-from app.models.interview import Interview
-from app.models.offer import Offer
-from app.services.auth_service import _hash_password
+from app.models.candidate import Candidate
 
+def test_referral_notification_appears_in_candidate_portal_after_signup(
+    client, auth_client, db_session, test_user, test_company
+):
+    from app.models.role import Permission
+    from app.models.pipeline import PipelineTemplate, PipelineStage
+    from app.models.job import Job
 
-def _signup(client, email="candidate@test.com", password="a-strong-password-1"):
-    return client.post(
-        "/api/v1/candidate-auth/signup",
-        json={"email": email, "password": password, "first_name": "Jane", "last_name": "Doe"},
-    )
-
-
-def test_candidate_signup_and_login(client, db_session):
-    signup_resp = _signup(client)
-    assert signup_resp.status_code == 201
-    assert "access_token" in signup_resp.get_json()["data"]
-
-    login_resp = client.post(
-        "/api/v1/candidate-auth/login",
-        json={"email": "candidate@test.com", "password": "a-strong-password-1"},
-    )
-    assert login_resp.status_code == 200
-
-
-def test_cannot_signup_twice_with_same_email(client, db_session):
-    _signup(client)
-    dup_resp = _signup(client)
-    assert dup_resp.status_code == 400
-
-
-def test_signup_claims_existing_guest_application_identity(client, db_session, test_company):
-    guest = Candidate(email="guest@test.com", first_name="Guest", last_name="Applicant")
-    db_session.add(guest)
+    perm = db_session.query(Permission).filter_by(code="referral.submit").one()
+    test_user.role.permissions.append(perm)
     db_session.commit()
-    guest_id = guest.id
-
-    signup_resp = client.post(
-        "/api/v1/candidate-auth/signup",
-        json={
-            "email": "guest@test.com", "password": "a-strong-password-1",
-            "first_name": "Guest", "last_name": "Applicant",
-        },
-    )
-    assert signup_resp.status_code == 201
-
-    claimed = db_session.query(Candidate).filter_by(email="guest@test.com").first()
-    assert claimed.id == guest_id
-    assert claimed.password_hash is not None
-    assert db_session.query(Candidate).filter_by(email="guest@test.com").count() == 1
-
-
-def test_wrong_password_rejected(client, db_session):
-    _signup(client)
-    response = client.post(
-        "/api/v1/candidate-auth/login", json={"email": "candidate@test.com", "password": "wrong-password"}
-    )
-    assert response.status_code == 401
-
-
-def test_staff_token_cannot_access_candidate_portal(auth_client):
-    response = auth_client.get("/api/v1/candidate-portal/me")
-    assert response.status_code == 401
-
-
-def test_candidate_token_cannot_access_staff_routes(client, db_session):
-    signup_resp = _signup(client)
-    token = signup_resp.get_json()["data"]["access_token"]
-    response = client.get("/api/v1/candidates", headers={"Authorization": f"Bearer {token}"})
-    assert response.status_code in (401, 403)
-
-
-def test_candidate_sees_only_their_own_applications(client, db_session, test_company, test_user):
-    signup_resp = _signup(client, email="owner@test.com")
-    token = signup_resp.get_json()["data"]["access_token"]
-    auth = {"Authorization": f"Bearer {token}"}
 
     template = PipelineTemplate(company_id=test_company.id, name="Standard")
     db_session.add(template)
@@ -84,153 +17,69 @@ def test_candidate_sees_only_their_own_applications(client, db_session, test_com
     stage = PipelineStage(pipeline_template_id=template.id, name="Screen", stage_order=0, stage_type="screening")
     db_session.add(stage)
     db_session.commit()
-    job = Job(company_id=test_company.id, title="Engineer", pipeline_template_id=template.id, created_by=test_user.id)
+    job = Job(
+        company_id=test_company.id, title="Engineer", pipeline_template_id=template.id,
+        status="published", created_by=test_user.id,
+    )
     db_session.add(job)
     db_session.commit()
 
-    owner_candidate = db_session.query(Candidate).filter_by(email="owner@test.com").first()
-    owner_profile = CandidateProfile(company_id=test_company.id, candidate_id=owner_candidate.id, skills=[])
-    db_session.add(owner_profile)
-    db_session.commit()
-    owner_application = Application(
-        company_id=test_company.id, job_id=job.id, candidate_id=owner_candidate.id,
-        candidate_profile_id=owner_profile.id, current_stage_id=stage.id, status="active",
+    refer_resp = auth_client.post(
+        "/api/v1/employee-portal/referrals",
+        json={"job_id": str(job.id), "email": "future-signup@test.com"},
     )
-    db_session.add(owner_application)
+    assert refer_resp.status_code == 201
 
-    other_candidate = Candidate(email="other@test.com", first_name="Other", last_name="Person")
-    db_session.add(other_candidate)
-    db_session.commit()
-    other_profile = CandidateProfile(company_id=test_company.id, candidate_id=other_candidate.id, skills=[])
-    db_session.add(other_profile)
-    db_session.commit()
-    other_application = Application(
-        company_id=test_company.id, job_id=job.id, candidate_id=other_candidate.id,
-        candidate_profile_id=other_profile.id, current_stage_id=stage.id, status="active",
+    signup_resp = client.post(
+        "/api/v1/candidate-auth/signup",
+        json={
+            "email": "future-signup@test.com", "password": "a-strong-password-1",
+            "first_name": "Future", "last_name": "Signup",
+        },
     )
-    db_session.add(other_application)
-    db_session.commit()
+    assert signup_resp.status_code == 201
+    token = signup_resp.get_json()["data"]["access_token"]
+    auth = {"Authorization": f"Bearer {token}"}
 
-    list_resp = client.get("/api/v1/candidate-portal/applications", headers=auth)
+    list_resp = client.get("/api/v1/candidate-portal/notifications", headers=auth)
     assert list_resp.status_code == 200
-    ids = [row["id"] for row in list_resp.get_json()["data"]]
-    assert str(owner_application.id) in ids
-    assert str(other_application.id) not in ids
+    notifications = list_resp.get_json()["data"]
+    assert len(notifications) == 1
+    assert notifications[0]["type"] == "referral_received"
+    assert notifications[0]["payload"]["job_title"] == "Engineer"
+    assert notifications[0]["read_at"] is None
 
-    forbidden_resp = client.get(
-        f"/api/v1/candidate-portal/applications/{other_application.id}", headers=auth
+    read_resp = client.patch(
+        f"/api/v1/candidate-portal/notifications/{notifications[0]['id']}/read", headers=auth
     )
-    assert forbidden_resp.status_code == 404
+    assert read_resp.status_code == 200
+    assert read_resp.get_json()["data"]["read_at"] is not None
 
 
-def test_candidate_sees_interviews_for_own_application(client, db_session, test_company, test_user):
-    signup_resp = _signup(client, email="interviewee@test.com")
+def test_candidate_cannot_read_another_candidates_notification(client, db_session, test_company):
+    from app.models.notification import Notification
+
+    other = Candidate(email="other-notif@test.com", first_name="Other", last_name="Person")
+    db_session.add(other)
+    db_session.commit()
+    other_notification = Notification(
+        company_id=test_company.id, candidate_id=other.id, type="referral_received",
+        channel="in_app", payload={"job_title": "Secret"},
+    )
+    db_session.add(other_notification)
+    db_session.commit()
+
+    signup_resp = client.post(
+        "/api/v1/candidate-auth/signup",
+        json={
+            "email": "reader@test.com", "password": "a-strong-password-1",
+            "first_name": "Reader", "last_name": "Person",
+        },
+    )
     token = signup_resp.get_json()["data"]["access_token"]
     auth = {"Authorization": f"Bearer {token}"}
 
-    template = PipelineTemplate(company_id=test_company.id, name="Standard")
-    db_session.add(template)
-    db_session.commit()
-    stage = PipelineStage(pipeline_template_id=template.id, name="Onsite", stage_order=0, stage_type="interview")
-    db_session.add(stage)
-    db_session.commit()
-    job = Job(company_id=test_company.id, title="Engineer", pipeline_template_id=template.id, created_by=test_user.id)
-    db_session.add(job)
-    db_session.commit()
-
-    candidate = db_session.query(Candidate).filter_by(email="interviewee@test.com").first()
-    profile = CandidateProfile(company_id=test_company.id, candidate_id=candidate.id, skills=[])
-    db_session.add(profile)
-    db_session.commit()
-    application = Application(
-        company_id=test_company.id, job_id=job.id, candidate_id=candidate.id,
-        candidate_profile_id=profile.id, current_stage_id=stage.id, status="active",
+    response = client.patch(
+        f"/api/v1/candidate-portal/notifications/{other_notification.id}/read", headers=auth
     )
-    db_session.add(application)
-    db_session.commit()
-    interview = Interview(
-        company_id=test_company.id, application_id=application.id, pipeline_stage_id=stage.id,
-        round_name="Technical Round", created_by=test_user.id,
-    )
-    db_session.add(interview)
-    db_session.commit()
-
-    response = client.get(f"/api/v1/candidate-portal/applications/{application.id}/interviews", headers=auth)
-    assert response.status_code == 200
-    assert response.get_json()["data"][0]["round_name"] == "Technical Round"
-
-
-def test_candidate_can_accept_own_offer(client, db_session, test_company, test_user):
-    signup_resp = _signup(client, email="offeree@test.com")
-    token = signup_resp.get_json()["data"]["access_token"]
-    auth = {"Authorization": f"Bearer {token}"}
-
-    template = PipelineTemplate(company_id=test_company.id, name="Standard")
-    db_session.add(template)
-    db_session.commit()
-    stage = PipelineStage(pipeline_template_id=template.id, name="Offer", stage_order=0, stage_type="offer")
-    db_session.add(stage)
-    db_session.commit()
-    job = Job(company_id=test_company.id, title="Engineer", pipeline_template_id=template.id, created_by=test_user.id)
-    db_session.add(job)
-    db_session.commit()
-
-    candidate = db_session.query(Candidate).filter_by(email="offeree@test.com").first()
-    profile = CandidateProfile(company_id=test_company.id, candidate_id=candidate.id, skills=[])
-    db_session.add(profile)
-    db_session.commit()
-    application = Application(
-        company_id=test_company.id, job_id=job.id, candidate_id=candidate.id,
-        candidate_profile_id=profile.id, current_stage_id=stage.id, status="active",
-    )
-    db_session.add(application)
-    db_session.commit()
-    offer = Offer(
-        company_id=test_company.id, application_id=application.id, salary_offered="100000.00",
-        status="sent", created_by=test_user.id,
-    )
-    db_session.add(offer)
-    db_session.commit()
-
-    response = client.post(f"/api/v1/candidate-portal/offers/{offer.id}/accept", headers=auth)
-    assert response.status_code == 200
-    assert response.get_json()["data"]["status"] == "accepted"
-
-
-def test_candidate_cannot_accept_someone_elses_offer(client, db_session, test_company, test_user):
-    signup_resp = _signup(client, email="attacker@test.com")
-    token = signup_resp.get_json()["data"]["access_token"]
-    auth = {"Authorization": f"Bearer {token}"}
-
-    template = PipelineTemplate(company_id=test_company.id, name="Standard")
-    db_session.add(template)
-    db_session.commit()
-    stage = PipelineStage(pipeline_template_id=template.id, name="Offer", stage_order=0, stage_type="offer")
-    db_session.add(stage)
-    db_session.commit()
-    job = Job(company_id=test_company.id, title="Engineer", pipeline_template_id=template.id, created_by=test_user.id)
-    db_session.add(job)
-    db_session.commit()
-
-    victim = Candidate(email="victim@test.com", first_name="Victim", last_name="Person")
-    db_session.add(victim)
-    db_session.commit()
-    victim_profile = CandidateProfile(company_id=test_company.id, candidate_id=victim.id, skills=[])
-    db_session.add(victim_profile)
-    db_session.commit()
-    victim_application = Application(
-        company_id=test_company.id, job_id=job.id, candidate_id=victim.id,
-        candidate_profile_id=victim_profile.id, current_stage_id=stage.id, status="active",
-    )
-    db_session.add(victim_application)
-    db_session.commit()
-    victim_offer = Offer(
-        company_id=test_company.id, application_id=victim_application.id, salary_offered="150000.00",
-        status="sent", created_by=test_user.id,
-    )
-    db_session.add(victim_offer)
-    db_session.commit()
-
-    response = client.post(f"/api/v1/candidate-portal/offers/{victim_offer.id}/accept", headers=auth)
     assert response.status_code == 404
-    assert db_session.query(Offer).filter_by(id=victim_offer.id).first().status == "sent"

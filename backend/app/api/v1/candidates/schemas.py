@@ -1,14 +1,6 @@
 from marshmallow import Schema, fields, validate
 
 
-class AddCandidateSchema(Schema):
-    email = fields.Email(required=True)
-    first_name = fields.Str(required=True, validate=validate.Length(min=1, max=100))
-    last_name = fields.Str(required=True, validate=validate.Length(min=1, max=100))
-    phone = fields.Str(required=False, allow_none=True)
-    source = fields.Str(required=False, allow_none=True)
-
-
 class UpdateProfileSchema(Schema):
     skills = fields.List(fields.Str(), required=False)
     experience_years = fields.Decimal(required=False, allow_none=True)

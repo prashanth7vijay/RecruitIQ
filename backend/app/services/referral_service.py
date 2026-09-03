@@ -1,3 +1,4 @@
+from app.exceptions.base import BusinessRuleViolationError, ConflictError
 from app.models.application import Application
 from app.models.candidate import Candidate
 from app.models.job import Job
@@ -5,41 +6,79 @@ from app.models.referral import Referral
 
 
 class ReferralService:
-    def __init__(self, session, referral_repo, application_service, job_repo):
+    def __init__(
+        self,
+        session,
+        referral_repo,
+        job_repo,
+        candidate_service=None,
+        notification_service=None,
+        user_repo=None,
+        company=None,
+    ):
         self.session = session
         self.referral_repo = referral_repo
-        self.application_service = application_service
         self.job_repo = job_repo
+        self.candidate_service = candidate_service
+        self.notification_service = notification_service
+        self.user_repo = user_repo
+        self.company = company
 
-    def submit_referral(self, tenant_id, referrer_user_id, job_id, email, first_name, last_name, phone=None):
-        # The "job must be published" check happens inside apply()
-        # itself, so a referral to a draft/closed job fails with the
-        # same message a direct apply attempt would — one rule, one
-        # place it's enforced.
-        application = self.application_service.apply(
-            tenant_id, job_id, email, first_name, last_name, phone=phone, source="referral"
-        )
+    def submit_referral(self, tenant_id, referrer_user_id, job_id, email):
+        job = self.job_repo.get_or_404(job_id, tenant_id)
+        if job.status != "published":
+            raise BusinessRuleViolationError("This job is not currently accepting applications")
+
+        candidate = self.candidate_service.find_or_create_identity(email)
+
+        if self.referral_repo.get_by_job_and_candidate(tenant_id, job_id, candidate.id) is not None:
+            raise ConflictError("This person has already been referred for this job")
 
         referral = self.referral_repo.model(
-            company_id=tenant_id, application_id=application.id, referred_by_user_id=referrer_user_id
+            company_id=tenant_id,
+            job_id=job_id,
+            candidate_id=candidate.id,
+            application_id=None,
+            referred_by_user_id=referrer_user_id,
         )
         self.referral_repo.add(referral)
         self.referral_repo.commit()
-        return referral, application
+
+        if self.notification_service is not None:
+            referrer_name = None
+            if self.user_repo is not None:
+                referrer = self.user_repo.get(referrer_user_id, tenant_id)
+                if referrer is not None:
+                    referrer_name = f"{referrer.first_name} {referrer.last_name}"
+            self.notification_service.notify(
+                tenant_id,
+                "referral_received",
+                payload={
+                    "job_id": str(job_id),
+                    "job_title": job.title,
+                    "company_name": self.company.name if self.company else None,
+                    "company_slug": self.company.slug if self.company else None,
+                    "referrer_name": referrer_name,
+                },
+                candidate_id=candidate.id,
+                channels=["in_app"],
+            )
+
+        return referral
 
     def list_my_referrals(self, tenant_id, referrer_user_id):
         rows = (
-            self.session.query(Referral, Application, Job, Candidate)
-            .join(Application, Application.id == Referral.application_id)
-            .join(Job, Job.id == Application.job_id)
-            .join(Candidate, Candidate.id == Application.candidate_id)
+            self.session.query(Referral, Job, Candidate, Application)
+            .join(Job, Job.id == Referral.job_id)
+            .join(Candidate, Candidate.id == Referral.candidate_id)
+            .outerjoin(Application, Application.id == Referral.application_id)
             .filter(Referral.company_id == tenant_id, Referral.referred_by_user_id == referrer_user_id)
             .order_by(Referral.created_at.desc())
             .all()
         )
         return [
-            {"referral": referral, "application": application, "job": job, "candidate": candidate}
-            for referral, application, job, candidate in rows
+            {"referral": referral, "job": job, "candidate": candidate, "application": application}
+            for referral, job, candidate, application in rows
         ]
 
     def list_open_jobs(self, tenant_id):

@@ -1,3 +1,5 @@
+from sqlalchemy.orm import joinedload
+
 from app.models.candidate import Candidate, CandidateProfile
 from app.models.resume import Resume
 from app.repositories.base_repository import TenantScopedRepository, GlobalRepository
@@ -18,6 +20,19 @@ class CandidateProfileRepository(TenantScopedRepository):
         return self._base_query(tenant_id).filter(
             CandidateProfile.candidate_id == candidate_id
         ).first()
+
+    def list_with_candidate(self, tenant_id, **filters):
+        return self._base_query(tenant_id).options(joinedload(CandidateProfile.candidate)).filter_by(**filters)
+
+    def list_by_ids(self, tenant_id, profile_ids):
+        if not profile_ids:
+            return []
+        return (
+            self._base_query(tenant_id)
+            .options(joinedload(CandidateProfile.candidate))
+            .filter(CandidateProfile.id.in_(profile_ids))
+            .all()
+        )
 
 
 class ResumeRepository:

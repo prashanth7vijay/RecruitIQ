@@ -32,6 +32,7 @@ def _tenant_id():
 
 @pipeline_templates_bp.route("", methods=["GET"])
 @jwt_required()
+@require_permission("job.create", "pipeline.manage")
 def list_templates():
     service = _build_service()
     templates = service.list_templates(_tenant_id())
@@ -56,6 +57,7 @@ def create_template():
 
 @pipeline_templates_bp.route("/<uuid:template_id>", methods=["GET"])
 @jwt_required()
+@require_permission("job.create", "pipeline.manage")
 def get_template(template_id):
     service = _build_service()
     template = service.get(_tenant_id(), template_id)

@@ -6,7 +6,7 @@ from app.validators.state_transitions import assert_valid_job_transition
 
 
 class ApplicationService:
-    def __init__(self, application_repo, history_repo, job_repo, candidate_service, stage_repo, event_bus=None, audit_service=None):
+    def __init__(self,application_repo,history_repo,job_repo,candidate_service,stage_repo,event_bus=None,audit_service=None,referral_repo=None,):
         self.application_repo = application_repo
         self.history_repo = history_repo
         self.job_repo = job_repo
@@ -14,6 +14,7 @@ class ApplicationService:
         self.stage_repo = stage_repo
         self.event_bus = event_bus
         self.audit_service = audit_service
+        self.referral_repo = referral_repo
 
     def apply(self, tenant_id, job_id, email, first_name, last_name, phone=None, source="career_portal"):
         job = self.job_repo.get_or_404(job_id, tenant_id)
@@ -51,6 +52,13 @@ class ApplicationService:
             )
         )
         self.history_repo.commit()
+
+        if self.referral_repo is not None:
+            pending_referral = self.referral_repo.get_pending_invite(tenant_id, job_id, candidate.id)
+            if pending_referral is not None:
+                pending_referral.application_id = application.id
+                self.referral_repo.commit()
+
         return application
 
     def list_for_job(self, tenant_id, job_id):

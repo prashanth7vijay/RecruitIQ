@@ -1,3 +1,5 @@
+from sqlalchemy.orm import contains_eager
+
 from app.models.candidate import Candidate, CandidateProfile
 from app.models.job import Job
 
@@ -16,6 +18,7 @@ class SearchService:
         return (
             self.session.query(CandidateProfile)
             .join(Candidate, Candidate.id == CandidateProfile.candidate_id)
+            .options(contains_eager(CandidateProfile.candidate))
             .filter(CandidateProfile.company_id == tenant_id)
             .filter(
                 (Candidate.first_name.ilike(pattern))

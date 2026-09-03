@@ -1,0 +1,99 @@
+from app.models.role import Permission
+
+
+def _grant(db_session, role, code):
+    perm = db_session.query(Permission).filter_by(code=code).first()
+    if perm is None:
+        perm = Permission(code=code)
+        db_session.add(perm)
+        db_session.flush()
+    if perm not in role.permissions:
+        role.permissions.append(perm)
+    db_session.commit()
+
+
+def test_plain_recruiter_cannot_read_company_settings(auth_client):
+    response = auth_client.get("/api/v1/companies/me")
+    assert response.status_code == 403
+
+
+def test_plain_recruiter_cannot_read_branding(auth_client):
+    response = auth_client.get("/api/v1/companies/me/branding")
+    assert response.status_code == 403
+
+
+def test_plain_recruiter_cannot_read_org_structure(auth_client):
+    assert auth_client.get("/api/v1/departments").status_code == 403
+    assert auth_client.get("/api/v1/teams").status_code == 403
+    assert auth_client.get("/api/v1/locations").status_code == 403
+
+
+def test_plain_recruiter_cannot_read_roles(auth_client):
+    assert auth_client.get("/api/v1/roles").status_code == 403
+    assert auth_client.get("/api/v1/roles/permissions").status_code == 403
+
+
+def test_plain_recruiter_cannot_read_approval_chains(auth_client):
+    response = auth_client.get("/api/v1/approval-chains/job")
+    assert response.status_code == 403
+
+
+def test_job_create_holder_can_still_read_pipeline_templates(auth_client, db_session, test_user):
+
+    _grant(db_session, test_user.role, "job.create")
+    response = auth_client.get("/api/v1/pipeline-templates")
+    assert response.status_code == 200
+
+
+def test_user_with_no_recruiting_permission_cannot_read_pipeline_templates(client, db_session, test_company):
+    from app.models.role import Role
+    from app.models.user import User
+    from app.services.auth_service import _hash_password
+
+    empty_role = Role(company_id=None, name="no_permissions_role_test", is_system_role=True)
+    db_session.add(empty_role)
+    db_session.commit()
+    powerless_user = User(
+        company_id=test_company.id,
+        email="powerless@acme-test.com",
+        password_hash=_hash_password("correct-horse-battery-staple"),
+        first_name="No",
+        last_name="Permissions",
+        role_id=empty_role.id,
+        status="active",
+    )
+    db_session.add(powerless_user)
+    db_session.commit()
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={
+            "company_slug": test_company.slug,
+            "email": "powerless@acme-test.com",
+            "password": "correct-horse-battery-staple",
+        },
+    )
+    token = login.get_json()["data"]["access_token"]
+
+    response = client.get(
+        "/api/v1/pipeline-templates", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert response.status_code == 403
+
+
+def test_admin_manage_users_holder_can_read_roles_for_assignment_dropdown(auth_client, db_session, test_user):
+    _grant(db_session, test_user.role, "admin.manage_users")
+    response = auth_client.get("/api/v1/roles")
+    assert response.status_code == 200
+
+
+def test_org_manage_structure_holder_can_read_departments(auth_client, db_session, test_user):
+    _grant(db_session, test_user.role, "org.manage_structure")
+    response = auth_client.get("/api/v1/departments")
+    assert response.status_code == 200
+
+
+def test_company_manage_settings_holder_can_read_branding(auth_client, db_session, test_user):
+    _grant(db_session, test_user.role, "company.manage_settings")
+    response = auth_client.get("/api/v1/companies/me/branding")
+    assert response.status_code == 200

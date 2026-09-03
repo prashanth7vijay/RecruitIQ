@@ -18,14 +18,11 @@ export function useMyReferrals() {
 export function useSubmitReferral() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ jobId, email, firstName, lastName, phone }) =>
+    mutationFn: async ({ jobId, email }) =>
       (
         await apiClient.post("/employee-portal/referrals", {
           job_id: jobId,
           email,
-          first_name: firstName,
-          last_name: lastName,
-          phone: phone || undefined,
         })
       ).data.data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["my-referrals"] }),

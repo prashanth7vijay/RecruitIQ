@@ -1,8 +1,7 @@
 import { useState, Fragment } from "react";
 import { useCandidates } from "./useCandidates";
-import { AddCandidateForm } from "./AddCandidateForm";
-import { ResumeUploadButton } from "./ResumeUploadButton";
 import { CandidateCRMPanel } from "./CandidateCRMPanel";
+import { ResumeLink } from "./ResumeLink";
 import { useAuth } from "../../stores/AuthContext";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
@@ -11,7 +10,6 @@ export function CandidatesPage() {
   const [page, setPage] = useState(1);
   const { data, isLoading, isError, error } = useCandidates(page);
   const { hasPermission } = useAuth();
-  const [showAddForm, setShowAddForm] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
 
   const candidates = data?.items;
@@ -19,21 +17,13 @@ export function CandidatesPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-2xl text-ink-900">Candidates</h1>
-          <p className="mt-1 text-sm text-ink-500">
-            Your organization's talent pool — nobody disappears after a "no."
-          </p>
-        </div>
-        {!showAddForm && hasPermission("candidate.manage") && <Button onClick={() => setShowAddForm(true)}>Add candidate</Button>}
+      <div>
+        <h1 className="font-display text-2xl text-ink-900">Candidates</h1>
+        <p className="mt-1 text-sm text-ink-500">
+          Everyone who's applied — nobody disappears after a "no." Candidates create their own
+          profiles by applying; use notes, tags, and pools below to organize them.
+        </p>
       </div>
-
-      {showAddForm && (
-        <Card className="mt-6 p-6">
-          <AddCandidateForm onDone={() => setShowAddForm(false)} />
-        </Card>
-      )}
 
       <div className="mt-6">
         {isLoading && <p className="text-sm text-ink-400">Loading candidates…</p>}
@@ -44,14 +34,13 @@ export function CandidatesPage() {
           </p>
         )}
 
-        {candidates && candidates.length === 0 && !showAddForm && (
+        {candidates && candidates.length === 0 && (
           <Card className="flex flex-col items-center gap-3 p-12 text-center">
             <p className="font-display text-lg text-ink-800">No candidates yet</p>
             <p className="max-w-sm text-sm text-ink-500">
-              Add the first person to your talent pool — every profile you
-              build here stays searchable for every future role.
+              Candidates show up here once someone applies to one of your published jobs, or an
+              employee referral turns into an application.
             </p>
-            {hasPermission("candidate.manage") && <Button onClick={() => setShowAddForm(true)}>Add candidate</Button>}
           </Card>
         )}
 
@@ -81,18 +70,20 @@ export function CandidatesPage() {
                         </td>
                         <td className="px-4 py-3">
                           {profile.resume_id ? (
-                            <span className="text-xs text-signal-600">On file</span>
+                            <ResumeLink profileId={profile.id} />
                           ) : (
-                            <ResumeUploadButton profileId={profile.id} />
+                            <span className="text-xs text-ink-400">Not provided</span>
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          <button
-                            onClick={() => setExpandedId(expandedId === profile.id ? null : profile.id)}
-                            className="text-xs font-medium text-ink-500 hover:text-ink-700"
-                          >
-                            {expandedId === profile.id ? "Hide" : "Notes & tags"}
-                          </button>
+                          {hasPermission("candidate.manage") && (
+                            <button
+                              onClick={() => setExpandedId(expandedId === profile.id ? null : profile.id)}
+                              className="text-xs font-medium text-ink-500 hover:text-ink-700"
+                            >
+                              {expandedId === profile.id ? "Hide" : "Notes, tags & pools"}
+                            </button>
+                          )}
                         </td>
                       </tr>
                       {expandedId === profile.id && (

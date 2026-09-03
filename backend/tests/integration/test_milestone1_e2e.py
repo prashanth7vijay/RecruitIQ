@@ -3,6 +3,7 @@ from app.models.role import Permission
 from app.models.job import JobApprovalStep
 
 
+from tests.conftest import dummy_resume
 def _grant(db_session, role, code):
     perm = db_session.query(Permission).filter_by(code=code).first()
     if perm is None:
@@ -55,7 +56,7 @@ def test_full_milestone1_loop(auth_client, db_session, test_user, test_company):
     # 3. Candidate applies via the PUBLIC portal — no auth at all.
     apply_resp = auth_client.post(
         f"/api/v1/public/{test_company.slug}/jobs/{job_id}/apply",
-        data={"email": "jane@example.com", "first_name": "Jane", "last_name": "Doe"},
+        data={"email": "jane@example.com", "first_name": "Jane", "last_name": "Doe", "resume": dummy_resume()},
         headers={"Authorization": ""},  # explicitly drop auth to prove this is public
     )
     assert apply_resp.status_code == 201
@@ -64,7 +65,7 @@ def test_full_milestone1_loop(auth_client, db_session, test_user, test_company):
     # 4. Duplicate application should be rejected.
     dup_resp = auth_client.post(
         f"/api/v1/public/{test_company.slug}/jobs/{job_id}/apply",
-        data={"email": "jane@example.com", "first_name": "Jane", "last_name": "Doe"},
+        data={"email": "jane@example.com", "first_name": "Jane", "last_name": "Doe", "resume": dummy_resume()},
         headers={"Authorization": ""},
     )
     assert dup_resp.status_code == 409
@@ -96,7 +97,7 @@ def test_cannot_apply_to_unpublished_job(auth_client, db_session, test_user, tes
 
     apply_resp = auth_client.post(
         f"/api/v1/public/{test_company.slug}/jobs/{job_id}/apply",
-        data={"email": "someone@example.com", "first_name": "A", "last_name": "B"},
+        data={"email": "someone@example.com", "first_name": "A", "last_name": "B", "resume": dummy_resume()},
         headers={"Authorization": ""},
     )
     assert apply_resp.status_code == 422

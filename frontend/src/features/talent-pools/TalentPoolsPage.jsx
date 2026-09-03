@@ -16,12 +16,18 @@ function PoolDetail({ pool }) {
         {isLoading && <p className="text-xs text-ink-400">Loading members…</p>}
         {members?.length === 0 && (
           <p className="text-xs text-ink-400">
-            No candidates yet — add them from the Candidates page.
+            No candidates yet — open a candidate's "Notes, tags & pools" panel on the Candidates
+            page to add them here.
           </p>
         )}
         {members?.map((member) => (
           <div key={member.id} className="flex items-center justify-between rounded-md bg-ink-50 px-3 py-2 text-xs">
-            <span className="text-ink-600">{member.current_location ?? "Location unknown"}</span>
+            <div>
+              <span className="font-medium text-ink-800">
+                {member.candidate.first_name} {member.candidate.last_name}
+              </span>
+              <span className="ml-2 text-ink-500">{member.current_location ?? "Location unknown"}</span>
+            </div>
             <button
               onClick={() => removeFromPool.mutate(member.id)}
               disabled={removeFromPool.isPending}

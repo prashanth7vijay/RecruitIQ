@@ -1,3 +1,4 @@
+from app.models.candidate import Candidate, CandidateProfile
 from app.models.role import Permission
 
 
@@ -12,17 +13,18 @@ def _grant(db_session, role, code):
     db_session.commit()
 
 
-def test_candidates_list_is_paginated(auth_client, db_session, test_user):
-    # Route requires candidate.manage to create and the narrower
-    # candidate.view_all to list — two distinct permissions by design
-    # (see app/api/v1/candidates/routes.py), so this test needs both.
-    _grant(db_session, test_user.role, "candidate.manage")
+def _seed_candidate_profiles(db_session, company, count):
+    for i in range(count):
+        candidate = Candidate(email=f"person{i}@example.com", first_name="P", last_name=str(i))
+        db_session.add(candidate)
+        db_session.flush()
+        db_session.add(CandidateProfile(company_id=company.id, candidate_id=candidate.id, skills=[]))
+    db_session.commit()
+
+
+def test_candidates_list_is_paginated(auth_client, db_session, test_user, test_company):
     _grant(db_session, test_user.role, "candidate.view_all")
-    for i in range(25):
-        auth_client.post(
-            "/api/v1/candidates",
-            json={"email": f"person{i}@example.com", "first_name": "P", "last_name": str(i)},
-        )
+    _seed_candidate_profiles(db_session, test_company, 25)
 
     page1 = auth_client.get("/api/v1/candidates?per_page=10")
     body = page1.get_json()
@@ -48,7 +50,6 @@ def test_jobs_list_is_paginated(auth_client, db_session, test_user):
 
 
 def test_per_page_over_max_is_capped(auth_client, db_session, test_user):
-    _grant(db_session, test_user.role, "candidate.manage")
     _grant(db_session, test_user.role, "candidate.view_all")
     response = auth_client.get("/api/v1/candidates?per_page=5000")
     assert response.get_json()["meta"]["pagination"]["per_page"] == 100

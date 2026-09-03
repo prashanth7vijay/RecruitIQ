@@ -5,6 +5,7 @@ import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 
 const STATUS_LABELS = {
+  invited: "Invited — hasn't applied yet",
   active: "In progress",
   hired: "Hired",
   rejected: "Not moving forward",
@@ -13,7 +14,7 @@ const STATUS_LABELS = {
 
 function ReferralForm({ jobs }) {
   const submitReferral = useSubmitReferral();
-  const [form, setForm] = useState({ jobId: "", email: "", firstName: "", lastName: "", phone: "" });
+  const [form, setForm] = useState({ jobId: "", email: "" });
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
 
@@ -23,7 +24,7 @@ function ReferralForm({ jobs }) {
     setSuccess(false);
     try {
       await submitReferral.mutateAsync(form);
-      setForm({ jobId: "", email: "", firstName: "", lastName: "", phone: "" });
+      setForm({ jobId: "", email: "" });
       setSuccess(true);
     } catch (err) {
       setError(err.response?.data?.error?.message ?? "Could not submit this referral.");
@@ -33,6 +34,10 @@ function ReferralForm({ jobs }) {
   return (
     <Card className="p-6">
       <p className="font-display text-lg text-[var(--text-primary)]">Refer a candidate</p>
+      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+        We'll only send them a message about this role — they apply themselves, with their own
+        resume, and it'll be automatically credited to you as a referral.
+      </p>
       <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <label className="text-sm font-medium text-[var(--text-primary)]">Role</label>
@@ -50,22 +55,6 @@ function ReferralForm({ jobs }) {
             ))}
           </select>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Input
-            id="referral-first-name"
-            label="Their first name"
-            value={form.firstName}
-            onChange={(e) => setForm({ ...form, firstName: e.target.value })}
-            required
-          />
-          <Input
-            id="referral-last-name"
-            label="Their last name"
-            value={form.lastName}
-            onChange={(e) => setForm({ ...form, lastName: e.target.value })}
-            required
-          />
-        </div>
         <Input
           id="referral-email"
           type="email"
@@ -75,7 +64,7 @@ function ReferralForm({ jobs }) {
           required
         />
         {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-        {success && <p className="text-sm text-signal-600">Referral submitted.</p>}
+        {success && <p className="text-sm text-signal-600">Referral sent — they've been notified.</p>}
         <Button type="submit" disabled={submitReferral.isPending || !jobs?.length} className="self-start">
           {submitReferral.isPending ? "Submitting…" : "Submit referral"}
         </Button>
@@ -129,7 +118,13 @@ export function EmployeePortalPage() {
                 <p className="font-medium text-[var(--text-primary)]">{r.candidate_name}</p>
                 <p className="text-sm text-[var(--text-secondary)]">{r.job_title}</p>
               </div>
-              <span className="rounded-full bg-[var(--surface-hover)] px-3 py-1 text-xs text-[var(--text-secondary)]">
+              <span
+                className={`rounded-full px-3 py-1 text-xs ${
+                  r.status === "invited"
+                    ? "bg-amber-50 text-amber-700"
+                    : "bg-[var(--surface-hover)] text-[var(--text-secondary)]"
+                }`}
+              >
                 {STATUS_LABELS[r.status] ?? r.status}
               </span>
             </Card>

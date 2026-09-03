@@ -4,6 +4,7 @@ from app.models.job import JobApprovalStep
 from app.services.auth_service import _hash_password
 
 
+from tests.conftest import dummy_resume
 def _grant(db_session, role, code):
     perm = db_session.query(Permission).filter_by(code=code).first()
     if perm is None:
@@ -224,7 +225,7 @@ def test_offer_approval_also_enforces_role_match(auth_client, db_session, test_u
 
     apply_resp = auth_client.post(
         f"/api/v1/public/{test_company.slug}/jobs/{job_id}/apply",
-        data={"email": "jane@example.com", "first_name": "Jane", "last_name": "Doe"},
+        data={"email": "jane@example.com", "first_name": "Jane", "last_name": "Doe", "resume": dummy_resume()},
         headers={"Authorization": ""},
     )
     application_id = apply_resp.get_json()["data"]["id"]

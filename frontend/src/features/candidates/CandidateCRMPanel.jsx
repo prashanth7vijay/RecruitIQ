@@ -5,7 +5,59 @@ import {
   useCandidateTags,
   useAddCandidateTag,
 } from "./useCandidateCRM";
+import { useTalentPools, useAddToPool } from "../talent-pools/useTalentPools";
 import { Button } from "../../components/ui/Button";
+
+function AddToPoolControl({ profileId }) {
+  const { data: pools } = useTalentPools();
+  const [selectedPoolId, setSelectedPoolId] = useState("");
+  const addToPool = useAddToPool(selectedPoolId);
+  const [confirmation, setConfirmation] = useState(null);
+
+  async function handleAdd() {
+    if (!selectedPoolId) return;
+    try {
+      await addToPool.mutateAsync(profileId);
+      setConfirmation("Added.");
+    } catch (err) {
+      setConfirmation(err.response?.data?.error?.message ?? "Could not add to pool.");
+    }
+  }
+
+  if (!pools || pools.length === 0) {
+    return <p className="text-xs text-ink-400">No talent pools yet — create one on the Talent Pools page.</p>;
+  }
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <select
+        value={selectedPoolId}
+        onChange={(e) => {
+          setSelectedPoolId(e.target.value);
+          setConfirmation(null);
+        }}
+        className="rounded-md border border-ink-200 px-2 py-1 text-xs"
+      >
+        <option value="">Add to pool…</option>
+        {pools.map((pool) => (
+          <option key={pool.id} value={pool.id}>
+            {pool.name}
+          </option>
+        ))}
+      </select>
+      <Button
+        type="button"
+        variant="secondary"
+        className="px-2 py-1 text-xs"
+        disabled={!selectedPoolId || addToPool.isPending}
+        onClick={handleAdd}
+      >
+        Add
+      </Button>
+      {confirmation && <span className="text-xs text-ink-500">{confirmation}</span>}
+    </div>
+  );
+}
 
 export function CandidateCRMPanel({ profileId }) {
   const { data: notes } = useCandidateNotes(profileId);
@@ -30,7 +82,14 @@ export function CandidateCRMPanel({ profileId }) {
   }
 
   return (
-    <div className="grid grid-cols-2 gap-6 bg-ink-50 p-4">
+    <div className="bg-ink-50 p-4">
+      <div className="mb-4 border-b border-ink-100 pb-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Talent pools</p>
+        <div className="mt-2">
+          <AddToPoolControl profileId={profileId} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-6">
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Tags</p>
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -73,6 +132,7 @@ export function CandidateCRMPanel({ profileId }) {
             Add
           </Button>
         </form>
+      </div>
       </div>
     </div>
   );

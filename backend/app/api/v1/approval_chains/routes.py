@@ -26,6 +26,7 @@ def _build_service() -> ApprovalChainService:
 
 @approval_chains_bp.route("/<string:entity_type>", methods=["GET"])
 @jwt_required()
+@require_permission("approval.manage_chains")
 def get_chain(entity_type):
     service = _build_service()
     chain = service.get_chain(_tenant_id(), entity_type)

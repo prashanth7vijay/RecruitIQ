@@ -3,16 +3,16 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.api.v1.employee_portal.schemas import OpenJobSchema, SubmitReferralSchema, MyReferralSchema
 from app.exceptions.base import UnauthenticatedError
-from app.extensions import db
-from app.repositories.application_repository import ApplicationRepository, ApplicationStageHistoryRepository
-from app.repositories.audit_log_repository import AuditLogRepository
+from app.extensions import db, limiter
 from app.repositories.candidate_repository import CandidateRepository, CandidateProfileRepository, ResumeRepository
-from app.repositories.job_repository import JobRepository, PipelineStageRepository
+from app.repositories.company_repository import CompanyRepository
+from app.repositories.job_repository import JobRepository
+from app.repositories.notification_repository import NotificationRepository
 from app.repositories.referral_repository import ReferralRepository
-from app.services.application_service import ApplicationService
-from app.services.audit_service import AuditService
+from app.repositories.user_repository import UserRepository
 from app.services.candidate_service import CandidateService
 from app.services.event_bus import EventBus
+from app.services.notification_service import NotificationService
 from app.services.referral_service import ReferralService
 from app.utils.permissions import require_permission
 
@@ -32,20 +32,14 @@ def _build_service() -> ReferralService:
         resume_repo=ResumeRepository(db.session),
         event_bus=EventBus(),
     )
-    application_service = ApplicationService(
-        application_repo=ApplicationRepository(db.session),
-        history_repo=ApplicationStageHistoryRepository(db.session),
-        job_repo=JobRepository(db.session),
-        candidate_service=candidate_service,
-        stage_repo=PipelineStageRepository(db.session),
-        event_bus=EventBus(),
-        audit_service=AuditService(AuditLogRepository(db.session)),
-    )
     return ReferralService(
         session=db.session,
         referral_repo=ReferralRepository(db.session),
-        application_service=application_service,
         job_repo=JobRepository(db.session),
+        candidate_service=candidate_service,
+        notification_service=NotificationService(NotificationRepository(db.session)),
+        user_repo=UserRepository(db.session),
+        company=CompanyRepository(db.session).get_or_404(_tenant_id()),
     )
 
 
@@ -69,18 +63,15 @@ def list_my_referrals():
 @employee_portal_bp.route("/referrals", methods=["POST"])
 @jwt_required()
 @require_permission("referral.submit")
+@limiter.limit("20 per day")  
+
 def submit_referral():
     dto = SubmitReferralSchema().load(request.get_json() or {})
     service = _build_service()
-    referral, application = service.submit_referral(
+    referral = service.submit_referral(
         _tenant_id(),
         get_jwt_identity(),
         job_id=dto["job_id"],
         email=dto["email"],
-        first_name=dto["first_name"],
-        last_name=dto["last_name"],
-        phone=dto.get("phone"),
     )
-    return jsonify(
-        {"success": True, "data": {"id": str(referral.id), "application_id": str(application.id)}, "meta": {}}
-    ), 201
+    return jsonify({"success": True, "data": {"id": str(referral.id)}, "meta": {}}), 201

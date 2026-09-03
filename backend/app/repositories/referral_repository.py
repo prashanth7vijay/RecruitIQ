@@ -15,3 +15,21 @@ class ReferralRepository(TenantScopedRepository):
             .order_by(Referral.created_at.desc())
             .all()
         )
+
+    def get_pending_invite(self, tenant_id, job_id, candidate_id):
+        return (
+            self._base_query(tenant_id)
+            .filter(
+                Referral.job_id == job_id,
+                Referral.candidate_id == candidate_id,
+                Referral.application_id.is_(None),
+            )
+            .first()
+        )
+
+    def get_by_job_and_candidate(self, tenant_id, job_id, candidate_id):
+        return (
+            self._base_query(tenant_id)
+            .filter(Referral.job_id == job_id, Referral.candidate_id == candidate_id)
+            .first()
+        )

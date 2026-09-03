@@ -1,7 +1,5 @@
-from app.exceptions.base import BusinessRuleViolationError
 from app.models.candidate import Candidate, CandidateProfile
 from app.models.resume import Resume
-
 
 class CandidateService:
     def __init__(self, candidate_repo, profile_repo, resume_repo, event_bus=None, note_repo=None, tag_repo=None):
@@ -12,35 +10,25 @@ class CandidateService:
         self.note_repo = note_repo
         self.tag_repo = tag_repo
 
-    def add_candidate(self, tenant_id, email, first_name, last_name, phone=None, source=None):
+    def find_or_create_identity(self, email):
+        candidate = self.candidate_repo.get_by_email(email)
+        if candidate is None:
+            candidate = Candidate(email=email, first_name="", last_name="")
+            self.candidate_repo.add(candidate)
+            self.candidate_repo.commit()
+        return candidate
+
+    def get_or_create_profile(self, tenant_id, email, first_name, last_name, phone=None, source=None):
         candidate = self.candidate_repo.get_by_email(email)
         if candidate is None:
             candidate = Candidate(email=email, first_name=first_name, last_name=last_name, phone=phone)
             self.candidate_repo.add(candidate)
             self.candidate_repo.commit()
-
-        existing_profile = self.profile_repo.get_by_candidate(tenant_id, candidate.id)
-        if existing_profile is not None:
-            raise BusinessRuleViolationError(
-                "This candidate already has a profile in your organization"
-            )
-
-        profile = CandidateProfile(company_id=tenant_id, candidate_id=candidate.id, source=source)
-        self.profile_repo.add(profile)
-        self.profile_repo.commit()
-        return candidate, profile
-
-    def get_or_create_profile(self, tenant_id, email, first_name, last_name, phone=None, source=None):
-        """
-        Unlike add_candidate (which errors if a profile already exists —
-        the recruiter-initiated "add to my pool" case), this is for the
-        public apply flow: a candidate applying to a second job at the
-        same company should reuse their existing profile, not error.
-        """
-        candidate = self.candidate_repo.get_by_email(email)
-        if candidate is None:
-            candidate = Candidate(email=email, first_name=first_name, last_name=last_name, phone=phone)
-            self.candidate_repo.add(candidate)
+        elif not candidate.first_name and not candidate.last_name:
+            candidate.first_name = first_name
+            candidate.last_name = last_name
+            if phone:
+                candidate.phone = phone
             self.candidate_repo.commit()
 
         profile = self.profile_repo.get_by_candidate(tenant_id, candidate.id)
@@ -53,8 +41,14 @@ class CandidateService:
     def get_profile(self, tenant_id, profile_id):
         return self.profile_repo.get_or_404(profile_id, tenant_id)
 
+    def get_resume(self, tenant_id, profile_id):
+        profile = self.profile_repo.get_or_404(profile_id, tenant_id)
+        if profile.resume_id is None:
+            return None
+        return self.resume_repo.get(profile.resume_id)
+
     def list_profiles(self, tenant_id):
-        return self.profile_repo.list(tenant_id).all()
+        return self.profile_repo.list_with_candidate(tenant_id).all()
 
     def update_profile(self, tenant_id, profile_id, **fields):
         profile = self.profile_repo.get_or_404(profile_id, tenant_id)
@@ -87,8 +81,6 @@ class CandidateService:
             self.event_bus.publish("resume.uploaded", {"resume_id": str(resume.id)})
 
         return resume
-
-    # --- Notes & tags (Sprint 10 CRM) ---------------------------------
 
     def add_note(self, tenant_id, profile_id, author_id, body):
         from app.models.candidate_crm import CandidateNote

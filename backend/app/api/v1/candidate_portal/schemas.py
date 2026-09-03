@@ -70,3 +70,11 @@ class MyOfferSchema(Schema):
 
     def get_joining_date(self, row):
         return row["offer"].joining_date.isoformat() if row["offer"].joining_date else None
+
+
+class MyNotificationSchema(Schema):
+    id = fields.UUID(dump_only=True)
+    type = fields.Str(dump_only=True)
+    payload = fields.Dict(dump_only=True)
+    read_at = fields.DateTime(dump_only=True, allow_none=True)
+    created_at = fields.DateTime(dump_only=True)

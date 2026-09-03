@@ -3,7 +3,9 @@ from app.models.user import User
 from app.models.pipeline import PipelineTemplate, PipelineStage
 from app.models.job import Job
 from app.models.referral import Referral
+from app.models.notification import Notification
 from app.services.auth_service import _hash_password
+from tests.conftest import dummy_resume
 
 
 def _grant(db_session, role, code):
@@ -61,42 +63,73 @@ def test_employee_without_permission_cannot_submit_referral(auth_client, db_sess
     job = _make_published_job(db_session, test_company.id, test_user)
     response = auth_client.post(
         "/api/v1/employee-portal/referrals",
-        json={"job_id": str(job.id), "email": "ref@test.com", "first_name": "Ref", "last_name": "Erral"},
+        json={"job_id": str(job.id), "email": "ref@test.com"},
     )
     assert response.status_code == 403
 
 
-def test_employee_can_submit_and_see_own_referral(auth_client, db_session, test_user, test_company):
+def test_submitting_a_referral_only_creates_an_invite_and_notifies_the_candidate(
+    auth_client, db_session, test_user, test_company
+):
     _grant(db_session, test_user.role, "referral.submit")
     job = _make_published_job(db_session, test_company.id, test_user)
 
     submit_resp = auth_client.post(
         "/api/v1/employee-portal/referrals",
-        json={"job_id": str(job.id), "email": "candidate@test.com", "first_name": "Ref", "last_name": "Erral"},
+        json={"job_id": str(job.id), "email": "candidate@test.com"},
     )
     assert submit_resp.status_code == 201
+
+    referral = db_session.query(Referral).filter_by(id=submit_resp.get_json()["data"]["id"]).first()
+    assert referral.application_id is None
+    assert referral.job_id == job.id
+
+    notification = (
+        db_session.query(Notification)
+        .filter_by(candidate_id=referral.candidate_id, type="referral_received")
+        .first()
+    )
+    assert notification is not None
+    assert notification.payload["job_title"] == "Engineer"
 
     list_resp = auth_client.get("/api/v1/employee-portal/referrals")
     assert list_resp.status_code == 200
     rows = list_resp.get_json()["data"]
     assert len(rows) == 1
-    assert rows[0]["candidate_name"] == "Ref Erral"
+    assert rows[0]["status"] == "invited"
+    assert rows[0]["candidate_email"] == "candidate@test.com"
     assert rows[0]["job_title"] == "Engineer"
-    assert rows[0]["status"] == "active"
 
 
-def test_referral_status_reflects_application_status_live(auth_client, db_session, test_user, test_company):
-    """Confirms status is read from the Application, not a stale
-    duplicated column — moving the application forward should change
-    what the referral list reports without any referral-specific update."""
+def test_referral_is_completed_when_the_referred_person_applies(
+    client, auth_client, db_session, test_user, test_company
+):
+    """The end-to-end shape the referral flow is actually for: employee
+    refers -> candidate applies themselves (with a resume, same as any
+    applicant) -> the Referral picks up the resulting application and the
+    status the employee sees starts tracking the real pipeline."""
     _grant(db_session, test_user.role, "referral.submit")
     job = _make_published_job(db_session, test_company.id, test_user)
 
-    submit_resp = auth_client.post(
+    auth_client.post(
         "/api/v1/employee-portal/referrals",
-        json={"job_id": str(job.id), "email": "candidate2@test.com", "first_name": "Ref", "last_name": "Erral"},
+        json={"job_id": str(job.id), "email": "candidate2@test.com"},
     )
-    application_id = submit_resp.get_json()["data"]["application_id"]
+
+    apply_resp = client.post(
+        f"/api/v1/public/{test_company.slug}/jobs/{job.id}/apply",
+        data={
+            "email": "candidate2@test.com",
+            "first_name": "Real",
+            "last_name": "Name",
+            "resume": dummy_resume(),
+        },
+    )
+    assert apply_resp.status_code == 201
+    application_id = apply_resp.get_json()["data"]["id"]
+
+    referral = db_session.query(Referral).filter_by(company_id=test_company.id).first()
+    assert str(referral.application_id) == application_id
 
     from app.models.application import Application
 
@@ -105,7 +138,9 @@ def test_referral_status_reflects_application_status_live(auth_client, db_sessio
     db_session.commit()
 
     list_resp = auth_client.get("/api/v1/employee-portal/referrals")
-    assert list_resp.get_json()["data"][0]["status"] == "hired"
+    row = list_resp.get_json()["data"][0]
+    assert row["status"] == "hired"
+    assert row["candidate_name"] == "Real Name"  # placeholder overwritten by their own apply
 
 
 def test_cannot_refer_to_a_draft_job(auth_client, db_session, test_user, test_company):
@@ -122,7 +157,7 @@ def test_cannot_refer_to_a_draft_job(auth_client, db_session, test_user, test_co
 
     response = auth_client.post(
         "/api/v1/employee-portal/referrals",
-        json={"job_id": str(draft_job.id), "email": "x@test.com", "first_name": "X", "last_name": "Y"},
+        json={"job_id": str(draft_job.id), "email": "x@test.com"},
     )
     assert response.status_code == 422
 
@@ -131,7 +166,7 @@ def test_cannot_refer_same_candidate_twice_to_same_job(auth_client, db_session, 
     _grant(db_session, test_user.role, "referral.submit")
     job = _make_published_job(db_session, test_company.id, test_user)
 
-    payload = {"job_id": str(job.id), "email": "dup@test.com", "first_name": "Dup", "last_name": "Licate"}
+    payload = {"job_id": str(job.id), "email": "dup@test.com"}
     first = auth_client.post("/api/v1/employee-portal/referrals", json=payload)
     assert first.status_code == 201
     second = auth_client.post("/api/v1/employee-portal/referrals", json=payload)
@@ -144,7 +179,7 @@ def test_employee_sees_only_their_own_referrals_not_a_colleagues(auth_client, db
 
     auth_client.post(
         "/api/v1/employee-portal/referrals",
-        json={"job_id": str(job.id), "email": "mine@test.com", "first_name": "Mine", "last_name": "Referral"},
+        json={"job_id": str(job.id), "email": "mine@test.com"},
     )
 
     colleague_role = Role(company_id=None, name="colleague_employee_test", is_system_role=True)
@@ -162,12 +197,10 @@ def test_employee_sees_only_their_own_referrals_not_a_colleagues(auth_client, db
     from app.services.referral_service import ReferralService
     from app.repositories.referral_repository import ReferralRepository
 
-    referral_count_for_colleague = ReferralService(
-        session=db_session, referral_repo=ReferralRepository(db_session),
-        application_service=None, job_repo=None,
+    referrals_for_colleague = ReferralService(
+        session=db_session, referral_repo=ReferralRepository(db_session), job_repo=None,
     ).list_my_referrals(test_company.id, colleague.id)
-    assert referral_count_for_colleague == []
+    assert referrals_for_colleague == []
 
-    # Sanity: the referring user's own list still has exactly one entry.
     own_referrals = db_session.query(Referral).filter_by(referred_by_user_id=test_user.id).all()
     assert len(own_referrals) == 1

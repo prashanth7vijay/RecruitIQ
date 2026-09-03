@@ -1,5 +1,7 @@
 from marshmallow import Schema, fields, validate
 
+from app.api.v1.candidates.schemas import CandidateSchema
+
 
 class CreateTalentPoolSchema(Schema):
     name = fields.Str(required=True, validate=validate.Length(min=1, max=150))
@@ -19,5 +21,6 @@ class TalentPoolSchema(Schema):
 
 class PoolMemberSchema(Schema):
     id = fields.UUID(dump_only=True)
+    candidate = fields.Nested(CandidateSchema, dump_only=True)
     current_location = fields.Str(dump_only=True, allow_none=True)
     skills = fields.List(fields.Str(), dump_only=True)

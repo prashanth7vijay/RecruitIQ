@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "../../stores/AuthContext";
 import { useCompany, useUpdateCompany } from "./useCompany";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 
 export function CompanySettingsPage() {
-  const { data: company, isLoading } = useCompany();
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("company.manage_settings");
+
+  const { data: company, isLoading, isError } = useCompany();
   const updateCompany = useUpdateCompany();
   const [name, setName] = useState("");
   const [error, setError] = useState(null);
@@ -33,24 +37,38 @@ export function CompanySettingsPage() {
 
   return (
     <div className="mx-auto max-w-lg">
-      <h1 className="font-display text-2xl text-ink-900">Company settings</h1>
+      <h1 className="font-display text-2xl text-[var(--text-primary)]">Company settings</h1>
 
-      {isLoading && <p className="mt-4 text-sm text-ink-400">Loading…</p>}
+      {isLoading && <p className="mt-4 text-sm text-[var(--text-muted)]">Loading…</p>}
+      {isError && (
+        <p className="mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--text-secondary)]">
+          You don't have permission to view company settings.
+        </p>
+      )}
 
       {company && (
         <Card className="mt-6 p-6">
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <Input id="name" label="Company name" value={name} onChange={(e) => setName(e.target.value)} />
-            <p className="text-xs text-ink-400">
-              Career portal URL: <code className="text-ink-600">/careers/{company.slug}</code> — the
-              slug can't be changed here since it's already used in shared application links.
-            </p>
-            {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-            {saved && <p className="text-sm text-signal-600">Saved.</p>}
-            <Button type="submit" disabled={updateCompany.isPending} className="self-start">
-              {updateCompany.isPending ? "Saving…" : "Save changes"}
-            </Button>
-          </form>
+          <fieldset disabled={!canManage} className="flex flex-col gap-4 disabled:opacity-70">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              <Input
+                id="name"
+                label="Company name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+              <p className="text-xs text-[var(--text-muted)]">
+                Career portal URL: <code className="text-[var(--text-secondary)]">/careers/{company.slug}</code> —
+                the slug can't be changed here since it's already used in shared application links.
+              </p>
+              {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+              {saved && <p className="text-sm text-signal-600">Saved.</p>}
+              {canManage && (
+                <Button type="submit" disabled={updateCompany.isPending} className="self-start">
+                  {updateCompany.isPending ? "Saving…" : "Save changes"}
+                </Button>
+              )}
+            </form>
+          </fieldset>
         </Card>
       )}
     </div>

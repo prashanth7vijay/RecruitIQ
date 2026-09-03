@@ -1,36 +1,42 @@
 import { useState } from "react";
 import { useAuth } from "../../stores/AuthContext";
 import { useRoles, usePermissionCatalog, useCreateRole, useUpdateRole, useDeleteRole } from "./useRoles";
+import { groupPermissionsByCategory, describePermission } from "./permissionCatalog";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 
-function permissionGroup(code) {
-  return code.split(".")[0];
-}
-
 function PermissionPicker({ allPermissions, selected, onToggle }) {
-  const groups = allPermissions.reduce((acc, p) => {
-    const group = permissionGroup(p.code);
-    (acc[group] ??= []).push(p);
-    return acc;
-  }, {});
+  const groups = groupPermissionsByCategory(allPermissions);
 
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
-      {Object.entries(groups).map(([group, perms]) => (
-        <div key={group}>
-          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">{group}</p>
-          <div className="mt-1.5 flex flex-col gap-1">
-            {perms.map((p) => (
-              <label key={p.code} className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+    <div className="flex flex-col gap-4">
+      {groups.map(({ category, permissions }) => (
+        <div key={category}>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">{category}</p>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {permissions.map((p) => (
+              <label
+                key={p.code}
+                className="flex items-start gap-2 rounded-md border border-[var(--border)] p-2.5 text-sm"
+              >
                 <input
                   type="checkbox"
                   checked={selected.includes(p.code)}
                   onChange={() => onToggle(p.code)}
-                  className="h-3.5 w-3.5 rounded border-[var(--border)] accent-signal-500"
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-[var(--border)] accent-signal-500"
                 />
-                {p.code}
+                <span>
+                  <span className="flex items-center gap-1.5 font-medium text-[var(--text-primary)]">
+                    {p.label}
+                    {p.sensitive && (
+                      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                        Sensitive
+                      </span>
+                    )}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-[var(--text-secondary)]">{p.description}</span>
+                </span>
               </label>
             ))}
           </div>
@@ -74,7 +80,11 @@ function CreateRoleForm({ allPermissions, onDone }) {
       />
       <div>
         <p className="text-sm font-medium text-[var(--text-primary)]">Permissions</p>
-        <div className="mt-2">
+        <p className="text-xs text-[var(--text-muted)]">
+          What this role can do. Anything marked Sensitive grants access to company-wide
+          configuration or other people's accounts — grant it carefully.
+        </p>
+        <div className="mt-3">
           <PermissionPicker allPermissions={allPermissions} selected={selected} onToggle={toggle} />
         </div>
       </div>
@@ -83,6 +93,36 @@ function CreateRoleForm({ allPermissions, onDone }) {
         {createRole.isPending ? "Creating…" : "Create role"}
       </Button>
     </form>
+  );
+}
+
+function RoleSummary({ permissionCodes }) {
+  if (permissionCodes.length === 0) {
+    return <span className="text-xs text-[var(--text-muted)]">No permissions assigned</span>;
+  }
+  const byCategory = {};
+  for (const code of permissionCodes) {
+    const meta = describePermission(code);
+    byCategory[meta.category] = (byCategory[meta.category] ?? 0) + 1;
+  }
+  const hasSensitive = permissionCodes.some((code) => describePermission(code).sensitive);
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {Object.entries(byCategory).map(([category, count]) => (
+        <span
+          key={category}
+          className="rounded-full bg-[var(--surface-hover)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]"
+        >
+          {category} ({count})
+        </span>
+      ))}
+      {hasSensitive && (
+        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+          Includes sensitive access
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -142,18 +182,8 @@ function RoleRow({ role, allPermissions, canManage }) {
       </div>
 
       {!editing && (
-        <div className="mt-1.5 flex flex-wrap gap-1">
-          {role.permissions.length === 0 && (
-            <span className="text-xs text-[var(--text-muted)]">No permissions assigned</span>
-          )}
-          {role.permissions.map((code) => (
-            <span
-              key={code}
-              className="rounded-full bg-[var(--surface-hover)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]"
-            >
-              {code}
-            </span>
-          ))}
+        <div className="mt-2">
+          <RoleSummary permissionCodes={role.permissions} />
         </div>
       )}
 

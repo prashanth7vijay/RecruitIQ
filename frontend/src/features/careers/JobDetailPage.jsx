@@ -18,6 +18,10 @@ export function JobDetailPage() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
+    if (!resumeFile) {
+      setError("A resume is required to apply.");
+      return;
+    }
     try {
       await applyMutation.mutateAsync({ ...form, resumeFile });
     } catch (err) {
@@ -98,10 +102,11 @@ export function JobDetailPage() {
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
             />
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-[var(--text-primary)]">Resume (optional)</label>
+              <label className="text-sm font-medium text-[var(--text-primary)]">Resume</label>
               <input
                 type="file"
                 accept=".pdf,.docx,.doc"
+                required
                 onChange={(e) => setResumeFile(e.target.files?.[0] ?? null)}
                 className="text-sm text-[var(--text-secondary)] file:mr-3 file:rounded-md file:border-0 file:bg-[var(--surface-hover)] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-[var(--text-primary)]"
               />

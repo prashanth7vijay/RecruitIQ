@@ -30,6 +30,7 @@ def _tenant_id():
 
 @companies_bp.route("/me", methods=["GET"])
 @jwt_required()
+@require_permission("company.manage_settings")
 def get_own_company():
     service = _build_service()
     company = service.get_own_company(_tenant_id())
@@ -49,6 +50,7 @@ def update_own_company():
 
 @companies_bp.route("/me/branding", methods=["GET"])
 @jwt_required()
+@require_permission("company.manage_settings")
 def get_branding():
     storage = build_storage(current_app.config)
     service = _build_service()

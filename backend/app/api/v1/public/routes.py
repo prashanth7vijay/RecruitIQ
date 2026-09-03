@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, current_app
 
 from app.api.v1.companies.schemas import PublicCompanySchema
 from app.api.v1.public.schemas import PublicJobSchema, ApplySchema, ApplicationConfirmationSchema
-from app.exceptions.base import NotFoundError
+from app.exceptions.base import NotFoundError, ValidationError
 from app.extensions import db, limiter
 from app.repositories.application_repository import ApplicationRepository, ApplicationStageHistoryRepository
 from app.repositories.candidate_repository import (
@@ -12,6 +12,7 @@ from app.repositories.candidate_repository import (
 )
 from app.repositories.company_repository import CompanyRepository
 from app.repositories.job_repository import JobRepository, PipelineStageRepository
+from app.repositories.referral_repository import ReferralRepository
 from app.services.application_service import ApplicationService
 from app.services.candidate_service import CandidateService
 from app.services.company_service import CompanyService
@@ -57,6 +58,7 @@ def _build_application_service():
         candidate_service=_build_candidate_service(),
         stage_repo=PipelineStageRepository(db.session),
         event_bus=EventBus(),
+        referral_repo=ReferralRepository(db.session),
     )
 
 
@@ -101,8 +103,12 @@ def get_published_job(company_slug, job_id):
 def apply_to_job(company_slug, job_id):
     tenant_id = _resolve_tenant_id(company_slug)
 
-    # multipart/form-data: candidate fields arrive as form fields, resume as a file
     dto = ApplySchema().load(request.form.to_dict())
+    resume_file = request.files.get("resume")
+    if resume_file is None or not resume_file.filename:
+        raise ValidationError(
+            "A resume is required to apply.", details=[{"field": "resume", "message": "Resume file is required"}]
+        )
 
     service = _build_application_service()
     application = service.apply(
@@ -114,15 +120,14 @@ def apply_to_job(company_slug, job_id):
         phone=dto.get("phone"),
     )
 
-    if "resume" in request.files and request.files["resume"].filename:
-        storage = build_storage(current_app.config)
-        upload_service = FileUploadService(storage, max_size_mb=current_app.config["MAX_UPLOAD_SIZE_MB"])
-        storage_key, original_filename = upload_service.upload_resume(
-            request.files["resume"], tenant_id=tenant_id, candidate_id=application.candidate_id
-        )
-        _build_candidate_service().attach_resume(
-            tenant_id, application.candidate_profile_id, storage_key, original_filename
-        )
+    storage = build_storage(current_app.config)
+    upload_service = FileUploadService(storage, max_size_mb=current_app.config["MAX_UPLOAD_SIZE_MB"])
+    storage_key, original_filename = upload_service.upload_resume(
+        resume_file, tenant_id=tenant_id, candidate_id=application.candidate_id
+    )
+    _build_candidate_service().attach_resume(
+        tenant_id, application.candidate_profile_id, storage_key, original_filename
+    )
 
     return jsonify(
         {"success": True, "data": ApplicationConfirmationSchema().dump(application), "meta": {}}

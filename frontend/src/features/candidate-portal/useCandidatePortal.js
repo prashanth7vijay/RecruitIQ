@@ -51,3 +51,20 @@ export function useDeclineMyOffer() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["my-offers"] }),
   });
 }
+
+export function useMyNotifications() {
+  return useQuery({
+    queryKey: ["my-notifications"],
+    queryFn: async () => (await candidateApiClient.get("/candidate-portal/notifications")).data.data,
+  });
+}
+
+export function useMarkNotificationRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (notificationId) =>
+      (await candidateApiClient.patch(`/candidate-portal/notifications/${notificationId}/read`)).data
+        .data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["my-notifications"] }),
+  });
+}

@@ -29,7 +29,7 @@ def test_recruiter_with_only_job_create_cannot_design_pipeline(auth_client, db_s
     assert response.status_code == 403
 
 
-def test_recruiter_can_still_read_pipeline_templates(auth_client, db_session, test_user):
+def test_recruiter_can_still_read_pipeline_templates(auth_client, db_session, test_user, test_company):
     _grant(db_session, test_user.role, "pipeline.manage")
     create_resp = auth_client.post(
         "/api/v1/pipeline-templates", json={"name": "Engineering", "stages": SAMPLE_STAGES}
@@ -38,18 +38,48 @@ def test_recruiter_can_still_read_pipeline_templates(auth_client, db_session, te
 
     # A plain recruiter role (no pipeline.manage) should still be able to
     # read templates — they need to pick one when creating a job, just
-    # never design one.
-    from app.models.role import Role
+    # never design one. Needs a genuinely fresh login: role claims are
+    # baked into the JWT at issuance, so reassigning test_user.role_id
+    # after auth_client already has a token does nothing to that token —
+    # a prior version of this test silently passed for the wrong reason
+    # (still authenticated as the original role, which already had both
+    # job.create and the pipeline.manage just granted above).
+    from app.models.role import Role, Permission
+    from app.models.user import User
+    from app.services.auth_service import _hash_password
 
     plain_role = Role(company_id=None, name="plain_recruiter_test", is_system_role=True)
     db_session.add(plain_role)
     db_session.commit()
-    test_user.role_id = plain_role.id
+    job_create_perm = db_session.query(Permission).filter_by(code="job.create").first()
+    plain_role.permissions.append(job_create_perm)
     db_session.commit()
 
-    list_resp = auth_client.get("/api/v1/pipeline-templates")
+    plain_user = User(
+        company_id=test_company.id,
+        email="plain-recruiter@acme-test.com",
+        password_hash=_hash_password("correct-horse-battery-staple"),
+        first_name="Plain",
+        last_name="Recruiter",
+        role_id=plain_role.id,
+        status="active",
+    )
+    db_session.add(plain_user)
+    db_session.commit()
+
+    login_resp = auth_client.post(
+        "/api/v1/auth/login",
+        json={
+            "company_slug": test_company.slug,
+            "email": "plain-recruiter@acme-test.com",
+            "password": "correct-horse-battery-staple",
+        },
+    )
+    plain_auth = {"Authorization": f"Bearer {login_resp.get_json()['data']['access_token']}"}
+
+    list_resp = auth_client.get("/api/v1/pipeline-templates", headers=plain_auth)
     assert list_resp.status_code == 200
-    get_resp = auth_client.get(f"/api/v1/pipeline-templates/{template_id}")
+    get_resp = auth_client.get(f"/api/v1/pipeline-templates/{template_id}", headers=plain_auth)
     assert get_resp.status_code == 200
 
 

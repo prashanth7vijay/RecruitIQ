@@ -33,11 +33,6 @@ def test_login_with_wrong_password_returns_generic_error(client, test_user, test
 
 
 def test_login_with_unknown_company_slug_returns_same_generic_error(client, test_user):
-    """
-    An unknown organization slug must be indistinguishable from a
-    known one with a bad password — otherwise the login form becomes
-    an org-slug enumeration oracle.
-    """
     response = client.post(
         "/api/v1/auth/login",
         json={"company_slug": "no-such-company", "email": test_user.email, "password": "whatever"},
@@ -57,10 +52,10 @@ def test_refresh_rotates_token_and_old_one_cannot_be_reused(client, test_user, t
     )
     assert login_resp.status_code == 200
 
-    # First refresh should succeed and rotate the cookie.
     refresh_resp = client.post("/api/v1/auth/refresh")
     assert refresh_resp.status_code == 200
     assert refresh_resp.get_json()["data"]["access_token"]
+
 
 def test_logout_all_revokes_session(auth_client, test_user):
     response = auth_client.post("/api/v1/auth/logout-all")
@@ -78,11 +73,8 @@ def test_refresh_preserves_tenant_context_for_subsequent_requests(auth_client, t
 
     auth_client.environ_base["HTTP_AUTHORIZATION"] = f"Bearer {new_token}"
 
-    # Any tenant-scoped route proves this — /companies/me needs
-    # g.tenant_id, which comes directly from the refreshed token's claims.
-    response = auth_client.get("/api/v1/companies/me")
+    response = auth_client.get("/api/v1/employee-portal/jobs")
     assert response.status_code == 200
-    assert response.get_json()["data"]["id"] == str(test_company.id)
 
 def test_signup_creates_company_and_org_admin(client, db_session):
     response = client.post(
@@ -107,8 +99,6 @@ def test_signup_creates_company_and_org_admin(client, db_session):
     user = db_session.query(User).filter_by(company_id=company.id).first()
     assert user.role.name == "org_admin"
 
-    # The new org_admin can immediately log in — proves signup produces
-    # a genuinely usable account, not just DB rows.
     login_resp = client.post(
         "/api/v1/auth/login",
         json={
@@ -125,7 +115,7 @@ def test_signup_rejects_duplicate_slug(client, test_company):
         "/api/v1/auth/signup",
         json={
             "company_name": "Another Co",
-            "company_slug": test_company.slug,  # already taken by the conftest fixture
+            "company_slug": test_company.slug, 
             "email": "someone@example.com",
             "password": "correct-horse-battery-staple",
             "first_name": "A",

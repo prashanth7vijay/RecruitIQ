@@ -2,7 +2,6 @@ from flask import Blueprint, request, jsonify, g, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.api.v1.candidates.schemas import (
-    AddCandidateSchema,
     UpdateProfileSchema,
     CandidateProfileSchema,
     ResumeSchema,
@@ -11,7 +10,7 @@ from app.api.v1.candidates.schemas import (
     AddTagSchema,
     TagSchema,
 )
-from app.exceptions.base import UnauthenticatedError, ValidationError
+from app.exceptions.base import NotFoundError, UnauthenticatedError
 from app.extensions import db
 from app.repositories.candidate_repository import (
     CandidateRepository,
@@ -21,7 +20,6 @@ from app.repositories.candidate_repository import (
 from app.repositories.talent_pool_repository import CandidateNoteRepository, CandidateTagRepository
 from app.services.candidate_service import CandidateService
 from app.services.event_bus import EventBus
-from app.services.file_upload_service import FileUploadService
 from app.storage.factory import build_storage
 from app.utils.permissions import require_permission
 
@@ -51,19 +49,9 @@ def _tenant_id():
 def list_candidates():
     from app.utils.pagination import paginate_query
 
-    query = CandidateProfileRepository(db.session).list(_tenant_id())
+    query = CandidateProfileRepository(db.session).list_with_candidate(_tenant_id())
     profiles, pagination_meta = paginate_query(query)
     return jsonify({"success": True, "data": CandidateProfileSchema(many=True).dump(profiles), "meta": pagination_meta})
-
-
-@candidates_bp.route("", methods=["POST"])
-@jwt_required()
-@require_permission("candidate.manage")
-def add_candidate():
-    dto = AddCandidateSchema().load(request.get_json() or {})
-    service = _build_service()
-    _candidate, profile = service.add_candidate(tenant_id=_tenant_id(), **dto)
-    return jsonify({"success": True, "data": CandidateProfileSchema().dump(profile), "meta": {}}), 201
 
 
 @candidates_bp.route("/<uuid:profile_id>", methods=["GET"])
@@ -75,6 +63,24 @@ def get_candidate(profile_id):
     return jsonify({"success": True, "data": CandidateProfileSchema().dump(profile), "meta": {}})
 
 
+@candidates_bp.route("/<uuid:profile_id>/resume", methods=["GET"])
+@jwt_required()
+@require_permission("candidate.view_all")
+def get_candidate_resume(profile_id):
+    # The signed URL is generated fresh per request (short expiry — see
+    # LocalStorage.get_url) rather than stored/cached, so it can't be
+    # copied out and shared past its expiry window.
+    service = _build_service()
+    resume = service.get_resume(_tenant_id(), profile_id)
+    if resume is None:
+        raise NotFoundError("This candidate hasn't provided a resume")
+
+    storage = build_storage(current_app.config)
+    data = ResumeSchema().dump(resume)
+    data["url"] = storage.get_url(resume.storage_key)
+    return jsonify({"success": True, "data": data, "meta": {}})
+
+
 @candidates_bp.route("/<uuid:profile_id>", methods=["PATCH"])
 @jwt_required()
 @require_permission("candidate.manage")
@@ -83,29 +89,6 @@ def update_candidate(profile_id):
     service = _build_service()
     profile = service.update_profile(_tenant_id(), profile_id, **dto)
     return jsonify({"success": True, "data": CandidateProfileSchema().dump(profile), "meta": {}})
-
-
-@candidates_bp.route("/<uuid:profile_id>/resume", methods=["POST"])
-@jwt_required()
-@require_permission("candidate.manage")
-def upload_resume(profile_id):
-    if "file" not in request.files:
-        raise ValidationError("No file provided", details=[{"field": "file", "message": "Required"}])
-
-    file_obj = request.files["file"]
-    tenant_id = _tenant_id()
-
-    service = _build_service()
-    profile = service.get_profile(tenant_id, profile_id)
-
-    storage = build_storage(current_app.config)
-    upload_service = FileUploadService(storage, max_size_mb=current_app.config["MAX_UPLOAD_SIZE_MB"])
-    storage_key, original_filename = upload_service.upload_resume(
-        file_obj, tenant_id=tenant_id, candidate_id=profile.candidate_id
-    )
-
-    resume = service.attach_resume(tenant_id, profile_id, storage_key, original_filename)
-    return jsonify({"success": True, "data": ResumeSchema().dump(resume), "meta": {}}), 201
 
 
 @candidates_bp.route("/<uuid:profile_id>/notes", methods=["GET"])

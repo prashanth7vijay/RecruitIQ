@@ -38,7 +38,5 @@ class TalentPoolService:
     def list_members(self, tenant_id, pool_id):
         self.pool_repo.get_or_404(pool_id, tenant_id)
         memberships = self.membership_repo.list_for_pool(pool_id)
-        return [
-            self.profile_repo.get(m.candidate_profile_id, tenant_id)
-            for m in memberships
-        ]
+        profile_ids = [m.candidate_profile_id for m in memberships]
+        return self.profile_repo.list_by_ids(tenant_id, profile_ids)

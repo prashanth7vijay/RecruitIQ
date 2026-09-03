@@ -12,7 +12,9 @@ def _grant_permission(db_session, role, code):
     db_session.commit()
 
 
-def test_get_own_company(auth_client, test_company):
+def test_get_own_company(auth_client, db_session, test_user, test_company):
+    _grant_permission(db_session, test_user.role, "company.manage_settings")
+
     response = auth_client.get("/api/v1/companies/me")
 
     assert response.status_code == 200
@@ -38,6 +40,7 @@ def test_update_company_with_permission_succeeds(auth_client, db_session, test_u
 
 
 def test_update_company_cannot_change_slug(auth_client, db_session, test_user, test_company):
+
     _grant_permission(db_session, test_user.role, "company.manage_settings")
     original_slug = test_company.slug
 

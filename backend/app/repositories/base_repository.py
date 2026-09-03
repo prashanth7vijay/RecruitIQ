@@ -2,7 +2,7 @@ from app.exceptions.base import NotFoundError
 
 
 class TenantScopedRepository:
-    model = None  # set by subclasses
+    model = None
 
     def __init__(self, session):
         if self.model is None:
@@ -20,8 +20,6 @@ class TenantScopedRepository:
     def get_or_404(self, id, tenant_id):
         obj = self._base_query(tenant_id).filter(self.model.id == id).first()
         if obj is None:
-            # Deliberately the same exception/status as "doesn't exist at all" —
-            # see Phase 11.3 on why cross-tenant access returns 404, not 403.
             raise NotFoundError(f"{self.model.__name__} not found")
         return obj
 

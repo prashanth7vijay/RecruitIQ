@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n API,WEB,CELERY \"npm run dev:api\" \"npm run dev:web\" \"npm run dev:celery\"",
+    "dev:api": "cd backend && .venv\\Scripts\\python.exe -m flask run",
+    "dev:web": "cd frontend && npm run dev",
+    "dev:celery": "cd backend && .venv\\Scripts\\python.exe -m celery -A app.workers.worker_entrypoint worker --loglevel=info --pool=solo"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}

@@ -139,16 +139,32 @@ function SystemHealthTab() {
 }
 
 const TABS = [
-  { id: "users", label: "Users", Component: UsersTab },
-  { id: "roles", label: "Roles & Permissions", Component: RolesTab },
-  { id: "approvals", label: "Approval Chains", Component: ApprovalChainsTab },
-  { id: "audit", label: "Audit Log", Component: AuditLogTab },
-  { id: "health", label: "System Health", Component: SystemHealthTab },
+  { id: "users", label: "Users", Component: UsersTab, requiredPermission: "admin.manage_users" },
+  { id: "roles", label: "Roles & Permissions", Component: RolesTab, requiredPermission: "role.manage" },
+  {
+    id: "approvals",
+    label: "Approval Chains",
+    Component: ApprovalChainsTab,
+    requiredPermission: "approval.manage_chains",
+  },
+  { id: "audit", label: "Audit Log", Component: AuditLogTab, requiredPermission: "admin.manage_users" },
+  { id: "health", label: "System Health", Component: SystemHealthTab, requiredPermission: "admin.manage_users" },
 ];
 
 export function AdminPage() {
-  const [activeTab, setActiveTab] = useState("users");
-  const ActiveComponent = TABS.find((t) => t.id === activeTab).Component;
+  const { hasPermission } = useAuth();
+  const visibleTabs = TABS.filter((tab) => hasPermission(tab.requiredPermission));
+  const [activeTab, setActiveTab] = useState(visibleTabs[0]?.id);
+
+  if (visibleTabs.length === 0) {
+    return (
+      <p className="text-sm text-[var(--text-muted)]">
+        You don't have permission to view any administration area.
+      </p>
+    );
+  }
+
+  const ActiveComponent = (visibleTabs.find((t) => t.id === activeTab) ?? visibleTabs[0]).Component;
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -156,12 +172,12 @@ export function AdminPage() {
       <p className="mt-1 text-sm text-[var(--text-secondary)]">Organization-level administration.</p>
 
       <div className="mt-6 flex gap-1 border-b border-[var(--border)]">
-        {TABS.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === tab.id
+              (activeTab ?? visibleTabs[0].id) === tab.id
                 ? "border-b-2 border-signal-500 text-signal-700 dark:text-signal-300"
                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             }`}

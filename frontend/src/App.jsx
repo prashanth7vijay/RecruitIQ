@@ -1,9 +1,11 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route,Navigate } from "react-router-dom";
 import { LoginPage } from "./features/auth/LoginPage";
 import { SignupPage } from "./features/auth/SignupPage";
 import { ChangePasswordPage } from "./features/auth/ChangePasswordPage";
 import { AppLayout } from "./layouts/AppLayout";
 import { ProtectedRoute } from "./routes/ProtectedRoute";
+import { RequirePermission } from "./routes/RequirePermission";
+import { HomeRedirect } from "./routes/HomeRedirect";
 import { CandidatesPage } from "./features/candidates/CandidatesPage";
 import { JobsPage } from "./features/jobs/JobsPage";
 import { JobPipelinePage } from "./features/jobs/JobPipelinePage";
@@ -71,20 +73,104 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route path="/candidates" element={<CandidatesPage />} />
-        <Route path="/jobs" element={<JobsPage />} />
-        <Route path="/jobs/:jobId" element={<JobPipelinePage />} />
+        <Route
+          path="/candidates"
+          element={
+            <RequirePermission anyOf={["candidate.view_all"]}>
+              <CandidatesPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/jobs"
+          element={
+            <RequirePermission anyOf={["candidate.view_all"]}>
+              <JobsPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/jobs/:jobId"
+          element={
+            <RequirePermission anyOf={["candidate.view_all"]}>
+              <JobPipelinePage />
+            </RequirePermission>
+          }
+        />
         <Route path="/my-interviews" element={<MyInterviewsPage />} />
-        <Route path="/onboarding/:applicationId" element={<OnboardingPage />} />
-        <Route path="/organization" element={<OrgPage />} />
-        <Route path="/pipeline-templates" element={<PipelineTemplatesPage />} />
-        <Route path="/settings" element={<CompanySettingsPage />} />
-        <Route path="/branding" element={<BrandingCenterPage />} />
-        <Route path="/talent-pools" element={<TalentPoolsPage />} />
-        <Route path="/analytics" element={<AnalyticsPage />} />
-        <Route path="/admin" element={<AdminPage />} />
-        <Route path="/refer" element={<EmployeePortalPage />} />
-        <Route path="/" element={<Navigate to="/candidates" replace />} />
+        <Route
+          path="/onboarding/:applicationId"
+          element={
+            <RequirePermission anyOf={["onboarding.manage"]}>
+              <OnboardingPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/organization"
+          element={
+            <RequirePermission anyOf={["org.manage_structure"]}>
+              <OrgPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/pipeline-templates"
+          element={
+            <RequirePermission anyOf={["pipeline.manage"]}>
+              <PipelineTemplatesPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <RequirePermission anyOf={["company.manage_settings"]}>
+              <CompanySettingsPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/branding"
+          element={
+            <RequirePermission anyOf={["company.manage_settings"]}>
+              <BrandingCenterPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/talent-pools"
+          element={
+            <RequirePermission anyOf={["candidate.view_all"]}>
+              <TalentPoolsPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/analytics"
+          element={
+            <RequirePermission anyOf={["analytics.view_org"]}>
+              <AnalyticsPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <RequirePermission anyOf={["admin.manage_users", "role.manage", "approval.manage_chains"]}>
+              <AdminPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/refer"
+          element={
+            <RequirePermission anyOf={["referral.submit"]}>
+              <EmployeePortalPage />
+            </RequirePermission>
+          }
+        />
+        <Route path="/" element={<HomeRedirect />} />
       </Route>
     </Routes>
   );

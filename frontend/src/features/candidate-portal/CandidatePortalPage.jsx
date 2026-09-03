@@ -1,6 +1,13 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useCandidateAuth } from "../../stores/CandidateAuthContext";
-import { useMyApplications, useMyOffers, useAcceptMyOffer, useDeclineMyOffer } from "./useCandidatePortal";
+import {
+  useMyApplications,
+  useMyOffers,
+  useAcceptMyOffer,
+  useDeclineMyOffer,
+  useMyNotifications,
+  useMarkNotificationRead,
+} from "./useCandidatePortal";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 
@@ -10,6 +17,67 @@ const STATUS_LABELS = {
   rejected: "Not moving forward",
   withdrawn: "Withdrawn",
 };
+
+function MessagesSection() {
+  const { data: notifications, isLoading } = useMyNotifications();
+  const markRead = useMarkNotificationRead();
+  const navigate = useNavigate();
+
+  if (isLoading || !notifications || notifications.length === 0) return null;
+
+  return (
+    <div className="mb-6">
+      <h2 className="font-display text-lg text-[var(--text-primary)]">Messages</h2>
+      <div className="mt-3 flex flex-col gap-2">
+        {notifications.map((note) => {
+          const isReferral = note.type === "referral_received";
+          const isUnread = !note.read_at;
+          return (
+            <Card
+              key={note.id}
+              className={`p-4 ${isUnread ? "border-l-4 border-[var(--accent)]" : ""}`}
+            >
+              {isReferral ? (
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-[var(--text-primary)]">
+                      {note.payload.referrer_name || "Someone"} referred you for{" "}
+                      {note.payload.job_title} at {note.payload.company_name}
+                    </p>
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      Apply and it'll be credited as a referral automatically.
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    {note.payload.company_slug && (
+                      <Button
+                        onClick={() => {
+                          if (isUnread) markRead.mutate(note.id);
+                          navigate(
+                            `/careers/${note.payload.company_slug}/jobs/${note.payload.job_id}`
+                          );
+                        }}
+                      >
+                        View job
+                      </Button>
+                    )}
+                    {isUnread && (
+                      <Button variant="secondary" onClick={() => markRead.mutate(note.id)}>
+                        Mark read
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-[var(--text-primary)]">{note.type}</p>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function OffersSection() {
   const { data: offers, isLoading } = useMyOffers();
@@ -75,6 +143,7 @@ export function CandidatePortalPage() {
         </div>
 
         <div className="mt-6">
+          <MessagesSection />
           <OffersSection />
 
           {isLoading && <p className="text-sm text-[var(--text-muted)]">Loading…</p>}

@@ -5,14 +5,17 @@ from app.api.v1.candidate_portal.schemas import (
     MyApplicationSchema,
     MyInterviewSchema,
     MyOfferSchema,
+    MyNotificationSchema,
 )
 from app.extensions import db
+from app.repositories.notification_repository import NotificationRepository
 from app.repositories.offer_repository import OfferRepository, OfferApprovalStepRepository
 from app.repositories.role_repository import RoleRepository
 from app.repositories.approval_chain_repository import ApprovalChainRepository
 from app.repositories.user_repository import UserRepository
 from app.services.approval_chain_service import ApprovalChainService
 from app.services.candidate_portal_service import CandidatePortalService
+from app.services.notification_service import NotificationService
 from app.services.offer_service import OfferService
 from app.utils.candidate_auth import require_candidate_auth
 
@@ -29,6 +32,10 @@ def _build_service() -> CandidatePortalService:
         ),
     )
     return CandidatePortalService(session=db.session, offer_service=offer_service)
+
+
+def _build_notification_service() -> NotificationService:
+    return NotificationService(NotificationRepository(db.session))
 
 
 @candidate_portal_bp.route("/me", methods=["GET"])
@@ -85,3 +92,19 @@ def decline_offer(offer_id):
     service = _build_service()
     offer = service.decline_my_offer(g.candidate_id, offer_id)
     return jsonify({"success": True, "data": {"id": str(offer.id), "status": offer.status}, "meta": {}})
+
+
+@candidate_portal_bp.route("/notifications", methods=["GET"])
+@require_candidate_auth
+def list_notifications():
+    service = _build_notification_service()
+    rows = service.list_for_candidate(g.candidate_id)
+    return jsonify({"success": True, "data": MyNotificationSchema(many=True).dump(rows), "meta": {}})
+
+
+@candidate_portal_bp.route("/notifications/<uuid:notification_id>/read", methods=["PATCH"])
+@require_candidate_auth
+def mark_notification_read(notification_id):
+    service = _build_notification_service()
+    notification = service.mark_read_for_candidate(g.candidate_id, notification_id)
+    return jsonify({"success": True, "data": MyNotificationSchema().dump(notification), "meta": {}})

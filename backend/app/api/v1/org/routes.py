@@ -40,6 +40,7 @@ def _tenant_id():
 
 @org_bp.route("/departments", methods=["GET"])
 @jwt_required()
+@require_permission("org.manage_structure", "admin.manage_users")
 def list_departments():
     service = _build_service()
     departments = service.list_departments(_tenant_id())
@@ -60,6 +61,7 @@ def create_department():
 
 @org_bp.route("/departments/<uuid:department_id>", methods=["GET"])
 @jwt_required()
+@require_permission("org.manage_structure", "admin.manage_users")
 def get_department(department_id):
     service = _build_service()
     department = service.get_department(_tenant_id(), department_id)
@@ -88,6 +90,7 @@ def delete_department(department_id):
 
 @org_bp.route("/teams", methods=["GET"])
 @jwt_required()
+@require_permission("org.manage_structure", "admin.manage_users")
 def list_teams():
     department_id = request.args.get("department_id")
     service = _build_service()
@@ -109,6 +112,7 @@ def create_team():
 
 @org_bp.route("/teams/<uuid:team_id>", methods=["GET"])
 @jwt_required()
+@require_permission("org.manage_structure", "admin.manage_users")
 def get_team(team_id):
     service = _build_service()
     team = service.get_team(_tenant_id(), team_id)
@@ -141,6 +145,7 @@ def delete_team(team_id):
 
 @org_bp.route("/locations", methods=["GET"])
 @jwt_required()
+@require_permission("org.manage_structure", "admin.manage_users")
 def list_locations():
     service = _build_service()
     locations = service.list_locations(_tenant_id())

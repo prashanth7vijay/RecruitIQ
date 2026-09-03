@@ -40,3 +40,12 @@ class NotificationService:
         notification.read_at = datetime.now(timezone.utc)
         self.notification_repo.commit()
         return notification
+
+    def list_for_candidate(self, candidate_id, unread_only=False):
+        return self.notification_repo.list_for_candidate(candidate_id, unread_only).all()
+
+    def mark_read_for_candidate(self, candidate_id, notification_id):
+        notification = self.notification_repo.get_for_candidate_or_404(notification_id, candidate_id)
+        notification.read_at = datetime.now(timezone.utc)
+        self.notification_repo.commit()
+        return notification

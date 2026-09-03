@@ -28,6 +28,7 @@ def _build_service():
 
 @roles_bp.route("", methods=["GET"])
 @jwt_required()
+@require_permission("admin.manage_users", "role.manage", "approval.manage_chains")
 def list_roles():
     service = _build_service()
     roles = service.list_roles(_tenant_id())
@@ -36,6 +37,7 @@ def list_roles():
 
 @roles_bp.route("/<uuid:role_id>", methods=["GET"])
 @jwt_required()
+@require_permission("admin.manage_users", "role.manage", "approval.manage_chains")
 def get_role(role_id):
     service = _build_service()
     role = service.get_role(_tenant_id(), role_id)
@@ -75,6 +77,7 @@ def delete_role(role_id):
 
 @roles_bp.route("/permissions", methods=["GET"])
 @jwt_required()
+@require_permission("admin.manage_users", "role.manage", "approval.manage_chains")
 def list_permissions():
     # Same reasoning as list_roles: reading the catalog is safe for any
     # authenticated user, only creating/editing roles is gated.
