@@ -51,6 +51,12 @@ def list_jobs():
     query = JobRepository(db.session).list(_tenant_id())
     if status:
         query = query.filter(Job.status == status)
+    # Deterministic order is required for OFFSET/LIMIT pagination to be
+    # correct at all — without it Postgres is free to return rows in a
+    # different order on every call, which means page 2 can silently
+    # repeat or skip rows relative to page 1. Found while profiling
+    # this query for Phase 2 (see docs/database-optimization.md).
+    query = query.order_by(Job.created_at.desc())
     jobs, pagination_meta = paginate_query(query)
     return jsonify({"success": True, "data": JobSchema(many=True).dump(jobs), "meta": pagination_meta})
 

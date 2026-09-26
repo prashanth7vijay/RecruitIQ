@@ -1,4 +1,7 @@
+from dotenv import load_dotenv
 from flask import Flask
+
+load_dotenv()
 
 from app.config import config_map, REQUIRED_PRODUCTION_ENV_VARS
 from app.extensions import db, migrate, jwt, cache, limiter
