@@ -52,6 +52,14 @@ class CandidateService:
             candidate = Candidate(email=email, first_name=first_name, last_name=last_name, phone=phone)
             self.candidate_repo.add(candidate)
             self.candidate_repo.commit()
+        else:
+            if first_name:
+                candidate.first_name = first_name
+            if last_name:
+                candidate.last_name = last_name
+            if phone:
+                candidate.phone = phone
+            self.candidate_repo.commit()
 
         profile = self.profile_repo.get_by_candidate(tenant_id, candidate.id)
         if profile is None:

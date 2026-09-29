@@ -2,7 +2,8 @@ from flask import Blueprint, request, jsonify, g
 from flask_jwt_extended import jwt_required
 
 from app.exceptions.base import UnauthenticatedError
-from app.extensions import db
+from app.extensions import cache, db
+from app.observability import record_dashboard_cache
 from app.services.analytics_service import AnalyticsService
 from app.utils.permissions import require_permission
 
@@ -85,6 +86,7 @@ def department_hiring():
 @jwt_required()
 @require_permission("analytics.view_org")
 def executive_summary():
-    service = AnalyticsService(db.session)
-    result = service.executive_summary(_tenant_id())
-    return jsonify({"success": True, "data": result, "meta": {}})
+    service = AnalyticsService(db.session, cache=cache)
+    result, meta = service.executive_summary(_tenant_id())
+    record_dashboard_cache(meta["cache_hit"])
+    return jsonify({"success": True, "data": result, "meta": meta})

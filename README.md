@@ -1,4 +1,4 @@
-# RecruitIQ — Full Stack (Backend Sprints 1-5, Frontend Foundation + Sprints 4-5)
+﻿# RecruitIQ — Full Stack (Backend Sprints 1-5, Frontend Foundation + Sprints 4-5)
 
 ## Milestone 1 achieved — the full MVP loop works
 
@@ -78,11 +78,13 @@ caught gap-fix #3 above before shipping rather than after.
 
 ## Known gaps, stated plainly
 
-- **Integration tests (including the Milestone 1 E2E test) have not executed
-  against a live Postgres anywhere in this build** — no DB server was
-  reachable in this sandbox. Verified for syntax and logical consistency
-  only. Run `pytest tests/integration/` yourself after `docker-compose up`
-  and treat that as the real first confirmation.
+- ~~Integration tests (including the Milestone 1 E2E test) have not executed
+  against a live Postgres anywhere in this build~~ **Resolved in Sprint 13**:
+  the full suite (199 tests as of Sprint 18, up from 162) now genuinely runs
+  against a real Postgres 16 + Redis 7 instance — 199/199 passing. Running it
+  for the first time surfaced a real bug (see Sprint 13) that every prior
+  syntax-only check had missed, which is exactly the risk this gap always
+  described.
 - **Frontend and backend have never run simultaneously against each other**
   in this environment — only independently verified (backend boot, frontend
   build). The actual network integration between them is unverified until
@@ -396,7 +398,218 @@ functionality.
   into the Candidates and Jobs pages.
 
 
-## Setup
+## Sprint 12 — Org structure, invitations, approvals & Employee Referral Portal
+
+Present in the codebase (migrations `0013`-`0016`) but never written up
+here — documenting the gap rather than leaving it:
+
+- Org structure extensions (departments/teams/locations groundwork)
+- User invitation flow
+- Generic approval-chain workflow (`ApprovalChain`), reused by job and
+  offer approval steps
+- **Employee Referral Portal** (`api/v1/employee_portal`,
+  `services/referral_service.py`, `models/referral.py`) — lets an
+  internal employee (a `User`) browse open jobs and refer a candidate;
+  a `Referral` links the referring employee to the `Application` it
+  produced. Deliberately no `referrals.status` column — status is read
+  from the linked application at query time so there's no second copy
+  of "where did this candidate end up" that could drift from the real
+  pipeline state.
+
+## Sprint 13 — V2 Performance: Candidate Ranking Pipeline
+
+Full detail, design rationale, and real measured benchmark numbers in
+[`docs/ranking-engine.md`](docs/ranking-engine.md). Summary:
+
+- `rank_candidates_for_job` was a synchronous loop calling the AI client
+  once per active applicant, unconditionally, inline in the HTTP
+  request. Rebuilt as: deterministic pre-filter (skill overlap +
+  experience band) → cached AI scoring (explanation reused across
+  candidates who share a skill signature on the same job) → sorted,
+  instrumented results.
+- New async path (`POST /ai/jobs/:id/rank-candidates/async`, Celery,
+  `batch` queue) + `GET /ai/ranking-jobs/:id` polling, for applicant
+  pools too large to score inline. The original synchronous endpoint is
+  unchanged in contract — this is additive, not a breaking change.
+- `Flask-Caching` was registered in the app factory but never actually
+  used anywhere in the codebase (`CACHE_TYPE` was unset, defaulting to
+  a no-op backend) — wired to Redis for real.
+- Reproducible benchmark: `python scripts/benchmark_ranking.py`.
+  Measured (stub AI provider, real Postgres+Redis): **95-99.5% of AI
+  calls avoided** across 100/500/1,000-candidate runs, with 33-40% of
+  each seeded pool caught by the pre-filter before ever reaching
+  scoring. See the doc above for the full table and for why the
+  duration-improvement numbers specifically should be re-measured
+  against a real Ollama server before quoting them anywhere.
+- 23 new tests (pre-filter behavior, cache-hit accounting, async job
+  status, cross-tenant 404 on the new async endpoint); full suite run
+  against real infrastructure: **185/185 passing, zero regressions**.
+
+**One real bug caught, not carried forward:** seeding data for the
+benchmark above — plain `Candidate(...)` construction through the ORM,
+nothing unusual — failed with a Postgres NOT NULL violation on
+`created_at`, against a database built via the actual `flask db
+upgrade` migration chain (not the test suite's `db.create_all()`).
+Root cause: 24 timestamp columns across migrations `0001`-`0012` were
+missing the `server_default=now()` their own models declare — a
+genuine migration/model drift that the "Known gaps" entry above (tests
+never running against a live, migration-built Postgres) had been
+masking since Sprint 1. Fixed in
+`migrations/versions/0017_fix_timestamp_defaults.py`, applied and
+verified against a real Postgres instance. Full writeup in the
+Appendix of `docs/ranking-engine.md`.
+
+## Sprint 14 — V2 Performance: Database Profiling & Indexing
+
+Full detail, real `EXPLAIN ANALYZE` numbers, and a documented reverted
+regression in [`docs/database-optimization.md`](docs/database-optimization.md).
+Summary:
+
+- New `scripts/generate_synthetic_data.py` — bulk-insert, funnel-shaped
+  synthetic dataset generator (100K/300K+ candidates in ~25-90s).
+- **Correction to Phase 0**: that assessment claimed zero explicit
+  indexes existed anywhere — a bad grep (`sa.Index()`/`index=True`),
+  not a bad schema. The project actually declares 25 indexes via
+  `op.create_index(...)`, several already matching real query shapes.
+  Documented, not swept under the rug.
+- Found and fixed a real correctness bug: `GET /api/v1/jobs` and
+  `GET /api/v1/candidates` paginated with no `ORDER BY` — non-deterministic
+  pages. Fixing it exposed a real cost (unindexed sort), fixed with
+  `idx_candidate_profiles_company_created`: **31ms → 0.09ms** shallow
+  page, **71ms → 17.6ms** deep page, confirmed against a real second
+  tenant.
+- Found a plausible-looking inefficiency in `AnalyticsService.
+  pipeline_health()` (an unscoped multi-tenant aggregation), implemented
+  the "obvious" fix, measured it against a genuine second tenant, found
+  it was **slower** (137ms vs 89ms — an existing index already made the
+  unscoped version cheap), and reverted it. Documented as the actual
+  lesson, not hidden.
+- Measured `ILIKE` search cost at 100K candidates against the project's
+  own stated 500K+ threshold for full-text search: fine on the common
+  path (4.6ms), 139ms on a real, common worst case (no-match query) —
+  a data point for that threshold, not a contradiction of it.
+
+## Sprint 15 — V2 Performance: Analytics Dashboard Caching
+
+Full detail and real benchmark numbers in
+[`docs/caching.md`](docs/caching.md). Summary:
+
+- `AnalyticsService.executive_summary()` — the single most expensive
+  analytics read (five live aggregate queries every call) — is now
+  cached in Redis, keyed per tenant, with a 60s TTL as a safety net
+  and active invalidation on `application.stage_changed` and
+  `offer.accepted` (new Celery task, wired through the existing
+  `EventBus`, same pattern as the notification subscribers).
+- Measured (real Postgres 16 + Redis 7, both Phase 2 datasets):
+
+  | Dataset | Without cache (p50) | Cache hit (p50) |
+  |---|---:|---:|
+  | 100K candidates | 260 ms | **0.03 ms** |
+  | 300K candidates | 723 ms | **0.03 ms** |
+
+  A cache hit costs one Redis round trip instead of five SQL
+  aggregates — hit latency barely moves between the 100K and 300K
+  datasets while the uncached latency scales with data volume.
+- Honest known gap: job status changes (published/closed) aren't
+  actively invalidated — no event exists yet for that path, so the 60s
+  TTL is what bounds staleness there, not active invalidation. Stated
+  plainly in `docs/caching.md` rather than left implicit.
+- 4 new tests (cache-key scoping, hit/miss reporting, invalidation on
+  stage change via the real event path, invalidation task correctness
+  for offers). Full suite: **191/191 passing.**
+
+## Sprint 16 — V2 Performance: Search Optimization
+
+Full detail, including two subtle real bugs found along the way, in
+[`docs/search-optimization.md`](docs/search-optimization.md). Summary:
+
+- Corrected a scoping assumption in `SearchService`'s own documented
+  500K+ ILIKE threshold: `candidates` is a deliberately **global**
+  table (shared identity across tenants), so the count that matters is
+  global, not per-tenant. With Phase 2's second tenant's data actually
+  present (402,120 global candidates), the real worst-case search cost
+  was 530ms, not the 139ms measured against one tenant in Phase 2.
+- Added `pg_trgm` GIN indexes (migration `0019`) — but that alone
+  changed nothing. Two more real bugs had to be found first:
+  1. The natural `JOIN`-shaped query never let Postgres use the new
+     indexes, regardless of `enable_seqscan`. Fixed by restructuring
+     to a behaviorally identical semi-join (`candidate_id IN (SELECT
+     ...)`).
+  2. `email` is `CITEXT`; an uncast `ILIKE` against it doesn't match
+     an index built on `email::text` — and Postgres doesn't partially
+     use a `BitmapOr`, so that one unindexable branch silently made
+     it abandon indexing first_name/last_name too. Found by running
+     the actual SQLAlchemy-generated SQL through `EXPLAIN ANALYZE`,
+     not a hand-written equivalent.
+- Measured end to end, through the real application code path:
+  **530ms → ~1.3ms** for the no-match case, at 402K global candidates.
+- Decision, not a foregone conclusion: stayed on `ILIKE` + `pg_trgm`
+  rather than moving to tsvector/Elasticsearch — Postgres-native,
+  preserves exact current search semantics, and now performs
+  comparably to what a heavier engine would offer at this scale.
+- 1 new regression test (email-substring search — the exact case the
+  CITEXT bug broke). Full suite: **192/192 passing.**
+
+## Sprint 17 — V2 Performance: Load Testing & Horizontal Scalability
+
+Full detail and an honest sandbox-resource caveat in
+[`docs/scalability.md`](docs/scalability.md). Summary:
+
+- Two real bugs found before load testing could even meaningfully
+  start: the Docker image ran `flask run` (the single-threaded dev
+  server) instead of the `gunicorn`/`gevent` already listed in
+  requirements — including correcting an unverified claim from my own
+  Phase 0 assessment, which assumed gunicorn was wired up without
+  checking the Dockerfile; and Flask-Limiter had no storage backend
+  configured, silently defaulting to in-memory counters that don't
+  work correctly across multiple workers/replicas. Both fixed
+  (gunicorn+gevent in the Dockerfile CMD; `RATELIMIT_STORAGE_URI` on
+  Redis, same pattern as Phase 1's cache fix).
+- A third bug found once testing actually started: the rate limiter's
+  default IP-based key collapsed all concurrent users behind one
+  shared IP into a single bucket — measured 31-37% of `/search`
+  requests rejected with 429s at just 10-50 simulated users, far below
+  any real capacity limit. Fixed: rate limits now key by authenticated
+  JWT identity, falling back to IP only for pre-auth endpoints
+  (login's own brute-force protection, verified still IP-keyed and
+  still triggering correctly).
+- Real Locust load test (`loadtest/locustfile.py`, realistic weighted
+  endpoint mix) against the real gunicorn server and the Phase 2
+  100K-candidate dataset, at 10/50/150 concurrent users — 0% errors at
+  every tier once rate limiting was isolated out; a genuine
+  throughput/latency inflection point between 50 and 150 users.
+  **Stated plainly, not glossed over: this sandbox has exactly 1 CPU
+  core**, so the absolute numbers aren't a production capacity claim —
+  the doc says so directly and gives the exact commands to re-run on
+  real infrastructure.
+- Statelessness reasoned through explicitly (JWT-only auth, Redis-
+  shared cache and rate limiter across all 4 worker processes) rather
+  than just assumed from a clean load-test run.
+- 2 new tests (rate-limit key function: falls back to IP correctly
+  with no JWT or an invalid one). Full suite: **194/194 passing.**
+
+## Sprint 18 — V2 Performance: Observability
+
+Full detail in [`docs/observability.md`](docs/observability.md).
+Summary:
+
+- `/health` actually checks Postgres and Redis now (was an
+  unconditional `{"status": "ok"}` before — checked nothing).
+- `/metrics` (Prometheus text format): HTTP request counters/duration,
+  the Phase 1 ranking pipeline's real metrics, the Phase 3 dashboard
+  cache's hit/miss counts, and stage transitions. Deliberately no
+  `sla_breaches_total` — no SLA engine exists in this codebase to back
+  that metric with real data.
+- Real subtlety caught and fixed: `prometheus_client`'s default
+  registry is per-process, which silently under-reports behind Phase
+  5's 4 real gunicorn workers. Fixed via documented multiprocess mode
+  (`gunicorn.conf.py`) and verified by actually running 4 workers,
+  sending 21 requests, and confirming `/metrics` reported 21 — not a
+  quarter of that.
+- 5 new tests. Full suite: **199/199 passing.**
+
+
+
 
 ### Backend
 ```bash
@@ -440,15 +653,17 @@ docker-compose exec backend pip install -r requirements/dev.txt
 docker-compose exec backend pytest
 ```
 
-- `tests/unit/` — 45 tests, genuinely executed and passing in the build
-  environment (repository tenant-scoping guard, job/offer state machines,
-  file upload magic-byte validation, AI client/Ollama HTTP mocking,
-  pagination math)
-- `tests/integration/` — auth flow (incl. signup), tenant isolation, job
-  lifecycle, company settings, candidate/resume, interviews, offers/onboarding,
-  notifications, talent CRM/search/analytics, admin/audit, pagination, and
-  the Milestone 1 E2E test — all verified for syntax/consistency but not yet
-  run against a live DB (see Known Gaps above)
+- `tests/unit/` — 64 tests, genuinely executed and passing (repository
+  tenant-scoping guard, job/offer state machines, file upload magic-byte
+  validation, AI client/Ollama HTTP mocking, pagination math, the V2
+  candidate pre-filter, ranking-metrics helpers, and the rate-limit key
+  function)
+- `tests/integration/` — 135 tests: auth flow (incl. signup), tenant
+  isolation, job lifecycle, company settings, candidate/resume, interviews,
+  offers/onboarding, notifications, talent CRM/search/analytics, admin/audit,
+  pagination, the Milestone 1 E2E test, the V2 ranking pipeline, and analytics
+  caching — **199/199 tests total, genuinely run against a real Postgres 16 +
+  Redis 7 instance** (see Sprint 13/14/15/16/17/18)
 
 ## Quick manual check
 

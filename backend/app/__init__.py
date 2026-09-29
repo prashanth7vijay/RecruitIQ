@@ -1,12 +1,13 @@
-from dotenv import load_dotenv
+﻿from dotenv import load_dotenv
 from flask import Flask
-
+from app.observability import register_metrics
 load_dotenv()
 
 from app.config import config_map, REQUIRED_PRODUCTION_ENV_VARS
 from app.extensions import db, migrate, jwt, cache, limiter
 from app.exceptions.handlers import register_error_handlers
 from app.middleware.tenant_context import register_middleware
+from app.observability import register_metrics
 
 
 def create_app(config_name: str = "development") -> Flask:
@@ -18,7 +19,7 @@ def create_app(config_name: str = "development") -> Flask:
 
     _init_extensions(app)
     _register_blueprints(app)
-
+    register_metrics(app)
     register_error_handlers(app)
     register_middleware(app)
 
@@ -46,7 +47,7 @@ def _init_extensions(app: Flask) -> None:
     init_celery(app)
 
     # Import models only after db.init_app so they bind to this app's
-    # SQLAlchemy instance — required for Flask-Migrate autogenerate.
+    # SQLAlchemy instance â€” required for Flask-Migrate autogenerate.
     with app.app_context():
         import app.models  # noqa: F401
 
@@ -101,14 +102,35 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(candidate_auth_bp)
     app.register_blueprint(candidate_portal_bp)
     app.register_blueprint(employee_portal_bp)
-
+    
     @app.route("/health")
     def health():
-        return {"status": "ok"}, 200
+        # Was `return {"status": "ok"}, 200` unconditionally — didn't
+        # actually check anything, so it couldn't detect the exact
+        # failure modes Section 21 names (Redis unavailable, Postgres
+        # temporarily unreachable). A health check a load balancer uses
+        # to decide whether to route traffic here needs to know that.
+        checks = {}
+
+        try:
+            db.session.execute(db.text("SELECT 1"))
+            checks["database"] = "ok"
+        except Exception as exc:  # noqa: BLE001 — any DB failure means unhealthy, not a crash
+            checks["database"] = f"error: {exc.__class__.__name__}"
+
+        try:
+            cache.get("__health_check__")
+            checks["cache"] = "ok"
+        except Exception as exc:  # noqa: BLE001
+            checks["cache"] = f"error: {exc.__class__.__name__}"
+
+        healthy = all(v == "ok" for v in checks.values())
+        return {"status": "ok" if healthy else "degraded", "checks": checks}, (200 if healthy else 503)
 
     @app.cli.command("seed-roles")
     def seed_roles():
-        """flask seed-roles — inserts/updates system-default roles & permissions."""
+        """flask seed-roles â€” inserts/updates system-default roles & permissions."""
         from app.seeds.system_roles import run
 
         run()
+

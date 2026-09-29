@@ -1,0 +1,4 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+GET,/analytics/executive-summary,HTTPError('403 Client Error: FORBIDDEN for url: /analytics/executive-summary'),400,2026-09-29T14:00:48Z,2026-09-29T14:01:06Z
+GET,/analytics/pipeline-health,HTTPError('403 Client Error: FORBIDDEN for url: /analytics/pipeline-health'),118,2026-09-29T14:00:47Z,2026-09-29T14:01:06Z
+GET,/candidates?page=[n],HTTPError('403 Client Error: FORBIDDEN for url: /candidates?page=[n]'),660,2026-09-29T14:00:47Z,2026-09-29T14:01:06Z
